@@ -167,6 +167,11 @@ class DocflowScenarioTest(unittest.TestCase):
 
         install = self.run_python(INSTALLER, "--root", str(self.root), "--ci", "github")
         self.assertEqual(install.returncode, 0, install.stderr)
+        installed_policy_path = self.root / ".document-driven/policy.json"
+        installed_policy = json.loads(installed_policy_path.read_text(encoding="utf-8"))
+        installed_policy["documentation_paths"].remove(".agents/**")
+        installed_policy["documentation_paths"].append("custom-docs/**")
+        write_json(installed_policy_path, installed_policy)
         install_again = self.run_python(INSTALLER, "--root", str(self.root), "--ci", "github")
         self.assertEqual(install_again.returncode, 0, install_again.stderr)
         agents = (self.root / "AGENTS.md").read_text(encoding="utf-8")
@@ -198,6 +203,8 @@ class DocflowScenarioTest(unittest.TestCase):
         policy_path = self.root / ".document-driven/policy.json"
         policy = json.loads(policy_path.read_text(encoding="utf-8"))
         self.assertIn(".agents/**", policy["documentation_paths"])
+        self.assertIn(".gitignore", policy["documentation_paths"])
+        self.assertIn("custom-docs/**", policy["documentation_paths"])
         policy["path_rules"] = [
             {"patterns": ["src/**"], "requires_artifacts": ["architecture"]}
         ]

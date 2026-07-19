@@ -217,6 +217,37 @@ def write_if_absent(path: Path, content: bytes) -> str:
     return "created"
 
 
+def merge_policy(path: Path) -> str:
+    """Add new managed defaults while preserving project-specific policy rules."""
+    existed = path.exists()
+    policy = load_optional_json(path)
+    before = json.dumps(policy, ensure_ascii=False, sort_keys=True)
+    defaults = docflow.default_policy()
+    for key in (
+        "schema_version",
+        "manifest_path",
+        "path_rules",
+        "require_requirement_ids",
+        "require_traceability",
+    ):
+        policy.setdefault(key, defaults[key])
+    documentation_paths = policy.setdefault("documentation_paths", [])
+    if not isinstance(documentation_paths, list) or not all(
+        isinstance(item, str) for item in documentation_paths
+    ):
+        raise docflow.DocflowError(
+            f"Existing policy documentation_paths is not a string array: {path}"
+        )
+    for managed_path in defaults["documentation_paths"]:
+        if managed_path not in documentation_paths:
+            documentation_paths.append(managed_path)
+    after = json.dumps(policy, ensure_ascii=False, sort_keys=True)
+    if before != after or not existed:
+        docflow.write_json(path, policy)
+        return "updated" if existed else "created"
+    return "unchanged"
+
+
 def install(root: Path, ci: str) -> list[tuple[str, str]]:
     plugin_root = Path(__file__).resolve().parent.parent
     manifest = docflow.require_valid_manifest(root)
@@ -255,7 +286,7 @@ def install(root: Path, ci: str) -> list[tuple[str, str]]:
         results.append((target.relative_to(root).as_posix(), status))
 
     policy_path = root / docflow.POLICY_REL
-    policy_status = write_if_absent(policy_path, docflow.json_bytes(docflow.default_policy()))
+    policy_status = merge_policy(policy_path)
     results.append((docflow.POLICY_REL.as_posix(), policy_status))
     trace_path = root / docflow.TRACE_REL
     trace_status = write_if_absent(

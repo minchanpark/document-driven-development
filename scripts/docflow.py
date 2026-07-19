@@ -282,6 +282,7 @@ def default_policy() -> dict[str, Any]:
             ".github/workflows/document-driven-development.yml",
             "AGENTS.md",
             "CLAUDE.md",
+            ".gitignore",
             "README.md",
             "LICENSE",
             "NOTICE",
