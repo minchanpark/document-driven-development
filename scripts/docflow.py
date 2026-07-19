@@ -278,6 +278,7 @@ def default_policy() -> dict[str, Any]:
             ".document-driven/**",
             ".codex/**",
             ".claude/**",
+            ".agents/**",
             ".github/workflows/document-driven-development.yml",
             "AGENTS.md",
             "CLAUDE.md",

@@ -197,6 +197,7 @@ class DocflowScenarioTest(unittest.TestCase):
 
         policy_path = self.root / ".document-driven/policy.json"
         policy = json.loads(policy_path.read_text(encoding="utf-8"))
+        self.assertIn(".agents/**", policy["documentation_paths"])
         policy["path_rules"] = [
             {"patterns": ["src/**"], "requires_artifacts": ["architecture"]}
         ]
