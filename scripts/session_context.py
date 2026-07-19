@@ -39,10 +39,34 @@ def context_message(root: Path | None = None) -> str | None:
                 "Do not implement work that depends on unapproved artifacts."
             )
         elif lock and not lock_errors:
-            message = (
-                f"Document-driven development: valid context lock for task {lock['task']['id']}. "
-                "Read every locked document and re-check the lock immediately before implementation."
-            )
+            package_lock, package_errors = docflow.check_package_lock(root)
+            active_run_path = docflow.run_path(root, lock["task"]["id"])
+            if package_lock and not package_errors:
+                phase = package_lock.get("phase", "implementation")
+                message = (
+                    f"Document-driven development: package {package_lock['package_id']} {phase} lock is active "
+                    f"for task {lock['task']['id']}. Read every locked document and edit only the "
+                    "package-owned paths."
+                )
+            elif active_run_path.is_file():
+                run, run_errors = docflow.check_run(root, lock["task"]["id"])
+                if run and not run_errors and run.get("status") == "completed":
+                    message = (
+                        f"Document-driven development: completed run and valid context lock for task "
+                        f"{lock['task']['id']}. Final verification remains required."
+                    )
+                elif run and not run_errors:
+                    message = (
+                        f"Document-driven development: run {run['status']} for task {lock['task']['id']}. "
+                        "Implementation writes require an active package lock in this worktree."
+                    )
+                else:
+                    message = "Document-driven development run state is invalid. Do not implement."
+            else:
+                message = (
+                    f"Document-driven development: valid context lock for task {lock['task']['id']}. "
+                    "Read every locked document and choose single or orchestrated implementation."
+                )
         else:
             message = (
                 "Document-driven development: all active artifacts are approved, but no valid task lock exists. "

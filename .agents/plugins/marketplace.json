@@ -16,19 +16,6 @@
         "authentication": "ON_INSTALL"
       },
       "category": "Developer Tools"
-    },
-    {
-      "name": "model-council",
-      "source": {
-        "source": "url",
-        "url": "https://github.com/minchanpark/model-council.git",
-        "ref": "generalize-version"
-      },
-      "policy": {
-        "installation": "AVAILABLE",
-        "authentication": "ON_INSTALL"
-      },
-      "category": "Developer Tools"
     }
   ]
 }

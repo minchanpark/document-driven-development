@@ -1,0 +1,6 @@
+interface:
+  display_name: "Orchestrate Documented Change"
+  short_description: "Run package-locked, reviewed implementation"
+  default_prompt: "Use $orchestrate-documented-change to implement this approved complex change through one Main Orchestrator, isolated packages, cross-review, and a green document gate."
+policy:
+  allow_implicit_invocation: true

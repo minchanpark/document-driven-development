@@ -21,6 +21,11 @@ These checks must confirm current approval hashes, manifest and document hashes,
 requirement ids, locked dependencies, policy-required artifacts, existing code and
 test paths, and complete traceability for the active task.
 
+When `.document-driven/runs/<task-id>/run.json` exists, also require a valid,
+`completed` run, no active Package Lock, independent review evidence, and every
+package in `integrated` status. A direct single-agent task remains valid without a
+run file.
+
 ## 2. Review the actual change
 
 Inspect the complete diff and map every changed implementation path to:
@@ -64,3 +69,4 @@ required check is skipped or failing.
 - No fabricated traceability or test evidence.
 - A changed approved document always requires re-approval and a new lock.
 - Hook success alone is not final verification; CI is the merge gate.
+- An unfinished orchestration run is a failed final gate.

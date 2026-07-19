@@ -57,8 +57,11 @@ a compact implementation plan mapping each requirement to:
 - constraints from each relevant artifact
 - uncertainty that would require a document revision
 
-Do not write product code, tests, migrations, or infrastructure yet. Hand off the
-valid lock and plan to `implement-from-documents`.
+Do not write product code, tests, migrations, or infrastructure yet. Classify the
+change as `single` or `orchestrated` using actual ownership and risk. Hand a small
+change to `implement-from-documents`; hand a complex change to
+`orchestrate-documented-change`. Provider setup is optional and may be performed
+with `setup-development-providers` before orchestration.
 
 ## Non-negotiable gates
 

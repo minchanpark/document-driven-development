@@ -19,6 +19,16 @@ python3 .document-driven/bin/docflow.py check-lock --root <repo>
 Read `.document-driven/context-lock.json` and every listed file completely. If
 the lock is missing or invalid, stop and use `prepare-documented-change`.
 
+If `.document-driven/package-lock.json` exists, this is a package worker run.
+Read it completely, verify the package is `implementing`, and edit only its
+`allowed_paths`. Run every declared `verification_command`. If an unfinished
+orchestrated run exists without an active package, do not write implementation
+files; return to `orchestrate-documented-change`.
+
+```text
+python3 .document-driven/bin/docflow.py check-package-lock --root <repo>
+```
+
 ## 2. Map work to requirements
 
 Restate the implementation plan as small steps. Each step must cite at least one
@@ -77,3 +87,4 @@ deployment, or operational verification.
 - Code never silently outranks an approved document.
 - Design changes require document revision, explicit re-approval, and a new lock.
 - Every locked requirement links to actual code and tests or approved verification.
+- An active Package Lock narrows the Task Lock; it never broadens it.
