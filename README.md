@@ -9,6 +9,27 @@ artifact list. It prescribes a decision process. The user and agent agree on the
 minimum useful document graph, then the repository records only the selected
 artifacts, their relationships, state, approval, and implementation relevance.
 
+## Installation
+
+### Codex
+
+```bash
+codex plugin marketplace add minchanpark/document-driven-development --ref main
+codex plugin add document-driven-development@minchanpark-plugins
+```
+
+Start a new Codex task after installation so the bundled skills and hooks are
+loaded from the installed plugin cache.
+
+### Claude Code
+
+```bash
+claude plugin marketplace add minchanpark/document-driven-development@main
+claude plugin install document-driven-development@minchanpark-plugins --scope user
+```
+
+Run `/reload-plugins` in an active Claude Code session, or start a new session.
+
 ## Workflow
 
 1. `discover-document-graph` reads the PRD and repository, interviews the user,

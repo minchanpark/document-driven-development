@@ -1,6 +1,6 @@
 {
   "name": "document-driven-development",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Turn a PRD into an approved, project-specific document graph and enforce those documents as implementation gates.",
   "author": {
     "name": "Park Minchan"
