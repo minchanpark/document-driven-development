@@ -1,0 +1,23 @@
+{
+  "name": "document-driven-development",
+  "version": "0.1.0+codex.20260719094754",
+  "description": "Turn a PRD into an approved, project-specific document graph and enforce those documents as implementation gates.",
+  "author": {
+    "name": "Park Minchan"
+  },
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Document Driven Development",
+    "shortDescription": "Plan documents dynamically, then gate implementation on them.",
+    "longDescription": "Starts from a PRD, discovers the minimum project-specific document graph through dialogue, authors each artifact with explicit approval, and installs repository guardrails based on document hashes, task locks, traceability, hooks, and CI.",
+    "developerName": "Park Minchan",
+    "category": "Developer Tools",
+    "capabilities": [
+      "Dynamic document graph discovery",
+      "Conversational document approval",
+      "Document-gated implementation",
+      "Traceability and CI verification"
+    ],
+    "defaultPrompt": "Start from my PRD, discover the minimum document graph with me one decision at a time, and do not implement until I approve the relevant documents."
+  }
+}

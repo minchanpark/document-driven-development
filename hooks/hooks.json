@@ -1,0 +1,29 @@
+{
+  "description": "Load document-driven context and guard implementation writes until an approved context lock exists.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume|clear|compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$PLUGIN_ROOT/scripts/codex_session_context.py\"",
+            "statusMessage": "Loading document-driven project state"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash|apply_patch|Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$PLUGIN_ROOT/scripts/codex_pre_tool.py\"",
+            "statusMessage": "Checking approved document context"
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,19 @@
+name: Document-driven development
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  document-gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Validate approved document context and traceability
+        env:
+          DDD_BASE_REF: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: python3 .document-driven/bin/docflow.py verify --root . --ci --base-ref "$DDD_BASE_REF"

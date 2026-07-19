@@ -1,0 +1,17 @@
+Document Driven Development
+
+This project includes an independently modified conversational design workflow
+inspired by the Superpowers project by Jesse Vincent:
+https://github.com/obra/superpowers
+
+The retained ideas are: inspect project context first, ask one question at a
+time, present 2-3 approaches with trade-offs, validate designs incrementally,
+and require explicit user approval before implementation.
+
+This plugin changes that workflow by dynamically discovering a project-specific
+document graph, authoring and approving artifacts individually, and installing
+document hashes, context locks, traceability checks, hooks, and CI gates.
+
+This project is not affiliated with or endorsed by the Superpowers project.
+The original and modified portions are distributed under the MIT License in
+the accompanying LICENSE file.

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Discover Document Graph"
+  short_description: "Turn a PRD into an approved dynamic document graph"
+  default_prompt: "Analyze this PRD with me, ask one question at a time, and propose the minimum project-specific document graph for approval."

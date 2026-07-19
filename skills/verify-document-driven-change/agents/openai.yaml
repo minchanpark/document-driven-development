@@ -1,0 +1,4 @@
+interface:
+  display_name: "Verify Document-Driven Change"
+  short_description: "Check documents, locks, traceability, tests, and drift"
+  default_prompt: "Verify this change against the approved document graph, traceability records, and tests."

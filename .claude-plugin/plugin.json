@@ -1,0 +1,17 @@
+{
+  "name": "document-driven-development",
+  "version": "0.1.0",
+  "description": "Turn a PRD into an approved, project-specific document graph and enforce those documents as implementation gates.",
+  "author": {
+    "name": "Park Minchan"
+  },
+  "license": "MIT",
+  "hooks": "./hooks/claude-hooks.json",
+  "keywords": [
+    "document-driven-development",
+    "prd",
+    "architecture",
+    "traceability",
+    "approval-gates"
+  ]
+}

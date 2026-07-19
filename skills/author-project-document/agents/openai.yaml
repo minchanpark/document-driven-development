@@ -1,0 +1,4 @@
+interface:
+  display_name: "Author Project Document"
+  short_description: "Create and approve one manifest document through dialogue"
+  default_prompt: "Work with me to draft and approve one selected project document from the document manifest."

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Implement From Documents"
+  short_description: "Implement only from approved locked project documents"
+  default_prompt: "Implement the requested change from the approved documents in the current valid context lock."

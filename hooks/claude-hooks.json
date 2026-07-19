@@ -1,0 +1,29 @@
+{
+  "description": "Load document-driven context and guard Claude Code writes until an approved context lock exists.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume|clear|compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/claude_session_context.py\"",
+            "statusMessage": "Loading document-driven project state"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash|Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/claude_pre_tool.py\"",
+            "statusMessage": "Checking approved document context"
+          }
+        ]
+      }
+    ]
+  }
+}

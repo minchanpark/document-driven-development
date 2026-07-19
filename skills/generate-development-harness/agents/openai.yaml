@@ -1,0 +1,4 @@
+interface:
+  display_name: "Generate Development Harness"
+  short_description: "Install document-driven rules, hooks, locks, and CI"
+  default_prompt: "Generate the repository harness that makes approved documents a prerequisite for implementation."

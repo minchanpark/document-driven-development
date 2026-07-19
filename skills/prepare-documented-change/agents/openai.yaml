@@ -1,0 +1,4 @@
+interface:
+  display_name: "Prepare Documented Change"
+  short_description: "Lock approved document context before implementation"
+  default_prompt: "Prepare this implementation task by selecting approved relevant documents and creating a verified context lock."

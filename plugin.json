@@ -1,0 +1,5 @@
+{
+  "$schema": "https://antigravity.google/schemas/v1/plugin.json",
+  "name": "document-driven-development",
+  "description": "Discover a project-specific document graph from a PRD and gate implementation on approved documents."
+}
