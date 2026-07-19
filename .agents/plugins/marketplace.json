@@ -1,0 +1,21 @@
+{
+  "name": "minchanpark-plugins",
+  "interface": {
+    "displayName": "Minchanpark Plugins"
+  },
+  "plugins": [
+    {
+      "name": "document-driven-development",
+      "source": {
+        "source": "url",
+        "url": "https://github.com/minchanpark/document-driven-development.git",
+        "ref": "main"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Developer Tools"
+    }
+  ]
+}

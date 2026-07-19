@@ -1,0 +1,27 @@
+{
+  "name": "minchanpark-plugins",
+  "owner": {
+    "name": "Park Minchan"
+  },
+  "description": "Document-driven development plugins by Park Minchan",
+  "plugins": [
+    {
+      "name": "document-driven-development",
+      "source": "./",
+      "description": "Turn a PRD into an approved project-specific document graph and enforce it during implementation.",
+      "author": {
+        "name": "Park Minchan"
+      },
+      "homepage": "https://github.com/minchanpark/document-driven-development",
+      "repository": "https://github.com/minchanpark/document-driven-development",
+      "license": "MIT",
+      "category": "development",
+      "tags": [
+        "document-driven-development",
+        "prd",
+        "architecture",
+        "traceability"
+      ]
+    }
+  ]
+}
