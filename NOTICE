@@ -13,5 +13,16 @@ document graph, authoring and approving artifacts individually, and installing
 document hashes, context locks, traceability checks, hooks, and CI gates.
 
 This project is not affiliated with or endorsed by the Superpowers project.
+
+The locked-plan debate, work-package decomposition, isolated implementation,
+cross-review, bounded fix, and escalation concepts are independently adapted
+from the former build flow in model-council:
+https://github.com/minchanpark/model-council
+Copyright (c) 2026 NewDawn
+
+Document Driven Development does not require model-council at runtime. The
+adapted provider runner and orchestration contracts are maintained independently
+under this project's document-first safety and approval model.
+
 The original and modified portions are distributed under the MIT License in
 the accompanying LICENSE file.

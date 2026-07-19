@@ -1,0 +1,6 @@
+interface:
+  display_name: "Setup Development Providers"
+  short_description: "Configure safe providers for documented builds"
+  default_prompt: "Use $setup-development-providers to configure host-native and optional external development providers without storing credentials."
+policy:
+  allow_implicit_invocation: true

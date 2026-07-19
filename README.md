@@ -39,14 +39,25 @@ Run `/reload-plugins` in an active Claude Code session, or start a new session.
    deterministic validators, context locks, traceability, and optional GitHub CI.
 4. `prepare-documented-change` selects approved relevant artifacts and hashes
    them into a task-specific context lock.
-5. `implement-from-documents` implements only from that valid locked context.
-6. `verify-document-driven-change` checks approval, drift, traceability, and tests.
+5. `setup-development-providers` optionally configures host-native agents and
+   external Codex, Claude Code, or Antigravity CLIs without storing credentials.
+6. `orchestrate-documented-change` challenges the locked plan, decomposes complex
+   work into non-overlapping packages, and runs isolated implementation,
+   independent review, bounded fixes, and green integration. Small changes still
+   go directly to `implement-from-documents`.
+7. `implement-from-documents` implements only from the valid Task Lock and, when
+   present, the narrower Package Lock.
+8. `verify-document-driven-change` checks approval, run completion, drift,
+   traceability, and tests.
 
 ## Canonical project files
 
 - `docs/document-manifest.json`: dynamic artifact graph and approval state
 - `.document-driven/policy.json`: repository-specific enforcement rules
+- `.document-driven/orchestration.json`: mode, review gates, loop limits, and non-secret provider routing
 - `.document-driven/context-lock.json`: task, requirement, and document hashes
+- `.document-driven/package-lock.json`: active package ownership in one worktree
+- `.document-driven/runs/<task-id>/run.json`: locked plan, packages, review, and integration state
 - `.document-driven/traceability.json`: requirement-to-document/code/test links
 
 Run `python3 scripts/docflow.py --help` for deterministic commands. The plugin
@@ -58,7 +69,14 @@ platform-specific:
 - Claude Code: `hooks/claude-hooks.json` and `.claude/settings.json`
 - Antigravity: `plugin.json`, `hooks.json`, and `.agents/hooks.json`
 
+Optional external provider adapters are available through
+`scripts/development-provider-runner.mjs`. They are not a dependency on
+`model-council`; host-native agents are the default and the DDD workflow remains
+fully functional without any external CLI.
+
 ## Attribution
 
-The conversational design principles are adapted from Superpowers. See
-`NOTICE` and `LICENSE` for attribution and license terms.
+The conversational design principles are adapted from Superpowers. The
+locked-plan, package decomposition, cross-review, and bounded escalation ideas
+are independently adapted from the former model-council build flow. See `NOTICE`
+and `LICENSE` for attribution and license terms.

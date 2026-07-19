@@ -248,6 +248,27 @@ def merge_policy(path: Path) -> str:
     return "unchanged"
 
 
+def merge_orchestration(path: Path) -> str:
+    """Install safe orchestration defaults without replacing provider choices."""
+    existed = path.exists()
+    config = load_optional_json(path)
+    before = json.dumps(config, ensure_ascii=False, sort_keys=True)
+    defaults = docflow.default_orchestration()
+    def apply_defaults(target: dict[str, Any], source: dict[str, Any]) -> None:
+        for key, value in source.items():
+            if key not in target:
+                target[key] = value
+            elif isinstance(value, dict) and isinstance(target.get(key), dict):
+                apply_defaults(target[key], value)
+
+    apply_defaults(config, defaults)
+    after = json.dumps(config, ensure_ascii=False, sort_keys=True)
+    if before != after or not existed:
+        docflow.write_json(path, config)
+        return "updated" if existed else "created"
+    return "unchanged"
+
+
 def install(root: Path, ci: str) -> list[tuple[str, str]]:
     plugin_root = Path(__file__).resolve().parent.parent
     manifest = docflow.require_valid_manifest(root)
@@ -288,6 +309,10 @@ def install(root: Path, ci: str) -> list[tuple[str, str]]:
     policy_path = root / docflow.POLICY_REL
     policy_status = merge_policy(policy_path)
     results.append((docflow.POLICY_REL.as_posix(), policy_status))
+    orchestration_path = root / docflow.ORCHESTRATION_REL
+    orchestration_status = merge_orchestration(orchestration_path)
+    docflow.load_orchestration(root)
+    results.append((docflow.ORCHESTRATION_REL.as_posix(), orchestration_status))
     trace_path = root / docflow.TRACE_REL
     trace_status = write_if_absent(
         trace_path,

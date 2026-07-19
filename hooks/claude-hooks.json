@@ -1,5 +1,5 @@
 {
-  "description": "Load document-driven context and guard Claude Code writes until an approved context lock exists.",
+  "description": "Load document-driven context and guard Claude Code writes with approved task and package locks.",
   "hooks": {
     "SessionStart": [
       {

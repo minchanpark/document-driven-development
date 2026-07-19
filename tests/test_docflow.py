@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -344,6 +345,318 @@ class DocflowScenarioTest(unittest.TestCase):
         stale = self.run_docflow("check-lock")
         self.assertNotEqual(stale.returncode, 0)
         self.assertIn("re-approval", stale.stderr)
+
+    def test_orchestrated_run_enforces_package_ownership_and_cross_review(self) -> None:
+        self.approved_manifest()
+        install = self.run_python(INSTALLER, "--root", str(self.root), "--ci", "none")
+        self.assertEqual(install.returncode, 0, install.stderr)
+        prepared = self.run_docflow(
+            "prepare",
+            "--task-id",
+            "TASK-ORCH",
+            "--summary",
+            "Implement the documented service",
+            "--requirement",
+            "REQ-1",
+            "--scope",
+            "backend",
+        )
+        self.assertEqual(prepared.returncode, 0, prepared.stderr)
+        started = self.run_docflow(
+            "start-run",
+            "--mode",
+            "orchestrated",
+            "--plan-summary",
+            "One isolated backend package",
+            "--debate-rounds",
+            "1",
+            "--actor",
+            "main-orchestrator",
+        )
+        self.assertEqual(started.returncode, 0, started.stderr)
+        package = self.run_docflow(
+            "add-package",
+            "--package",
+            "backend",
+            "--summary",
+            "Implement health endpoint",
+            "--requirement",
+            "REQ-1",
+            "--artifact",
+            "architecture",
+            "--allowed-path",
+            "src/**",
+            "--verification-command",
+            "python -m unittest",
+            "--actor",
+            "main-orchestrator",
+        )
+        self.assertEqual(package.returncode, 0, package.stderr)
+        overlap = self.run_docflow(
+            "add-package",
+            "--package",
+            "overlap",
+            "--requirement",
+            "REQ-1",
+            "--artifact",
+            "architecture",
+            "--allowed-path",
+            "src/app.py",
+            "--verification-command",
+            "true",
+            "--actor",
+            "main-orchestrator",
+        )
+        self.assertNotEqual(overlap.returncode, 0)
+        self.assertIn("overlaps", overlap.stderr)
+        approved = self.run_docflow("approve-run", "--approved-by", "test-user")
+        self.assertEqual(approved.returncode, 0, approved.stderr)
+
+        no_package = self.run_docflow("guard-edit", "--path", "src/app.py")
+        self.assertNotEqual(no_package.returncode, 0)
+        self.assertIn("activated", no_package.stderr)
+        activated = self.run_docflow(
+            "activate-package",
+            "--package",
+            "backend",
+            "--actor",
+            "coder-a",
+        )
+        self.assertEqual(activated.returncode, 0, activated.stderr)
+        self.assertEqual(self.run_docflow("guard-edit", "--path", "src/app.py").returncode, 0)
+        outside = self.run_docflow("guard-edit", "--path", "tests/test_app.py")
+        self.assertNotEqual(outside.returncode, 0)
+        design_write = self.run_docflow("guard-edit", "--path", "docs/ARCHITECTURE.md")
+        self.assertNotEqual(design_write.returncode, 0)
+
+        implemented = self.run_docflow(
+            "set-package-status",
+            "--package",
+            "backend",
+            "--to",
+            "implemented",
+            "--actor",
+            "coder-a",
+            "--note",
+            "Focused tests passed",
+        )
+        self.assertEqual(implemented.returncode, 0, implemented.stderr)
+        same_reviewer = self.run_docflow(
+            "set-package-status",
+            "--package",
+            "backend",
+            "--to",
+            "reviewing",
+            "--actor",
+            "coder-a",
+        )
+        self.assertNotEqual(same_reviewer.returncode, 0)
+        reviewing = self.run_docflow(
+            "set-package-status",
+            "--package",
+            "backend",
+            "--to",
+            "reviewing",
+            "--actor",
+            "reviewer-b",
+        )
+        self.assertEqual(reviewing.returncode, 0, reviewing.stderr)
+        accepted = self.run_docflow(
+            "set-package-status",
+            "--package",
+            "backend",
+            "--to",
+            "approved",
+            "--actor",
+            "reviewer-b",
+            "--note",
+            "Document and code review passed",
+        )
+        self.assertEqual(accepted.returncode, 0, accepted.stderr)
+        integration_lock = self.run_docflow(
+            "activate-integration",
+            "--package",
+            "backend",
+            "--actor",
+            "main-orchestrator",
+        )
+        self.assertEqual(integration_lock.returncode, 0, integration_lock.stderr)
+        integrated = self.run_docflow(
+            "set-package-status",
+            "--package",
+            "backend",
+            "--to",
+            "integrated",
+            "--actor",
+            "main-orchestrator",
+            "--note",
+            "Integration checks passed",
+        )
+        self.assertEqual(integrated.returncode, 0, integrated.stderr)
+        completed = self.run_docflow(
+            "complete-run",
+            "--actor",
+            "main-orchestrator",
+            "--note",
+            "Green integration gate passed",
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.assertEqual(self.run_docflow("check-run").returncode, 0)
+        self.assertEqual(self.run_docflow("guard-edit", "--path", "src/app.py").returncode, 0)
+
+    def test_isolated_package_result_merges_without_overwriting_central_run(self) -> None:
+        self.approved_manifest()
+        self.assertEqual(
+            self.run_python(INSTALLER, "--root", str(self.root), "--ci", "none").returncode,
+            0,
+        )
+        self.assertEqual(
+            self.run_docflow(
+                "prepare",
+                "--task-id",
+                "TASK-WORKTREE",
+                "--requirement",
+                "REQ-1",
+                "--scope",
+                "backend",
+            ).returncode,
+            0,
+        )
+        self.assertEqual(
+            self.run_docflow(
+                "start-run",
+                "--mode",
+                "orchestrated",
+                "--actor",
+                "main-orchestrator",
+            ).returncode,
+            0,
+        )
+        self.assertEqual(
+            self.run_docflow(
+                "add-package",
+                "--package",
+                "backend",
+                "--requirement",
+                "REQ-1",
+                "--artifact",
+                "architecture",
+                "--allowed-path",
+                "src/**",
+                "--verification-command",
+                "python -m unittest",
+                "--actor",
+                "main-orchestrator",
+            ).returncode,
+            0,
+        )
+        self.assertEqual(self.run_docflow("approve-run", "--approved-by", "test-user").returncode, 0)
+
+        with tempfile.TemporaryDirectory(prefix="document-driven-worker-") as worker_temp:
+            worker = Path(worker_temp) / "backend"
+            shutil.copytree(self.root, worker)
+
+            def worker_docflow(*args: str) -> subprocess.CompletedProcess[str]:
+                return self.run_python(DOCFLOW, *args, "--root", str(worker))
+
+            self.assertEqual(
+                worker_docflow(
+                    "activate-package",
+                    "--package",
+                    "backend",
+                    "--actor",
+                    "coder-a",
+                ).returncode,
+                0,
+            )
+            self.assertEqual(
+                worker_docflow(
+                    "set-package-status",
+                    "--package",
+                    "backend",
+                    "--to",
+                    "implemented",
+                    "--actor",
+                    "coder-a",
+                    "--note",
+                    "Package tests passed",
+                ).returncode,
+                0,
+            )
+            self.assertEqual(
+                worker_docflow(
+                    "set-package-status",
+                    "--package",
+                    "backend",
+                    "--to",
+                    "reviewing",
+                    "--actor",
+                    "reviewer-b",
+                ).returncode,
+                0,
+            )
+            self.assertEqual(
+                worker_docflow(
+                    "set-package-status",
+                    "--package",
+                    "backend",
+                    "--to",
+                    "approved",
+                    "--actor",
+                    "reviewer-b",
+                    "--note",
+                    "Independent review passed",
+                ).returncode,
+                0,
+            )
+            imported = self.run_docflow(
+                "import-package-result",
+                "--package",
+                "backend",
+                "--from-root",
+                str(worker),
+                "--actor",
+                "main-orchestrator",
+            )
+            self.assertEqual(imported.returncode, 0, imported.stderr)
+
+        central_run = json.loads(
+            (self.root / ".document-driven/runs/TASK-WORKTREE/run.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(central_run["packages"][0]["status"], "approved")
+        self.assertEqual(
+            self.run_docflow(
+                "activate-integration",
+                "--package",
+                "backend",
+                "--actor",
+                "main-orchestrator",
+            ).returncode,
+            0,
+        )
+        self.assertEqual(self.run_docflow("guard-edit", "--path", "src/app.py").returncode, 0)
+        integrated = self.run_docflow(
+            "set-package-status",
+            "--package",
+            "backend",
+            "--to",
+            "integrated",
+            "--actor",
+            "main-orchestrator",
+            "--note",
+            "Integration checks passed",
+        )
+        self.assertEqual(integrated.returncode, 0, integrated.stderr)
+        completed = self.run_docflow(
+            "complete-run",
+            "--actor",
+            "main-orchestrator",
+            "--note",
+            "Green integration gate passed",
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.assertEqual(self.run_docflow("check-run").returncode, 0)
+        self.assertEqual(self.run_docflow("guard-edit", "--path", "src/app.py").returncode, 0)
 
 
 if __name__ == "__main__":

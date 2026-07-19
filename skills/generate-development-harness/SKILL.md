@@ -53,6 +53,7 @@ The installer must preserve unrelated content and merge managed rules into:
 - `.agents/hooks.json` for Antigravity
 - `.document-driven/bin/`
 - `.document-driven/policy.json`
+- `.document-driven/orchestration.json`
 - `.document-driven/traceability.json`
 - optional `.github/workflows/document-driven-development.yml`
 
@@ -89,7 +90,10 @@ python3 .document-driven/bin/docflow.py verify --root . --ci --base-ref <base-co
 ## 5. Handoff
 
 Explain which layers are advisory and which are mechanical. The next allowed
-workflow for implementation is `prepare-documented-change`, never direct editing.
+workflow is `prepare-documented-change`, followed by direct
+`implement-from-documents` for a small task or `orchestrate-documented-change`
+for a complex task. External provider setup is optional; the harness works with
+host-native agents alone.
 
 ## Non-negotiable gates
 
