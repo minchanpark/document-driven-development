@@ -60,6 +60,12 @@ paths, blocking phase, and cache policy. Plain commands remain compatible, but
 only structured gates create reusable evidence and mechanically block their
 declared phase.
 
+Before locking the package graph, remove speculative packages, files,
+dependencies, configuration, and abstractions. Reuse settled repository
+interfaces and keep fewer packages when ownership and risk permit it. Minimalism
+never removes locked acceptance, security, accessibility, test, traceability, or
+evidence obligations.
+
 Run `check-run`, then `approve-run --approved-by <user>` only after explicit
 approval. The run state belongs under `.document-driven/runs/<task-id>/`; it is
 not a long-lived artifact in `docs/document-manifest.json`.
@@ -102,7 +108,8 @@ document approval workflow.
 
 Assign a reviewer different from the implementer. The reviewer is read-only and
 checks the package contract, approved documents, complete diff, tests, security,
-and ownership. Move the package through `reviewing` to `approved` or `rejected`.
+ownership, and unjustified files, dependencies, configuration, or abstractions.
+Move the package through `reviewing` to `approved` or `rejected`.
 
 On rejection, reactivate the same package for the implementer, apply only the
 review findings, and return the changed diff, prior findings, and affected tests

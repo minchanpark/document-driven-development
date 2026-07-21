@@ -24,5 +24,14 @@ Document Driven Development does not require model-council at runtime. The
 adapted provider runner and orchestration contracts are maintained independently
 under this project's document-first safety and approval model.
 
+The minimum-correct implementation decision ladder is adapted from Ponytail:
+https://github.com/DietrichGebert/ponytail
+Copyright (c) 2026 DietrichGebert
+
+Document Driven Development does not require Ponytail at runtime and does not
+copy its lifecycle hooks or full always-on instruction body. The adapted policy
+is maintained under this project's document locks, safety gates, and compact
+prompt budget.
+
 The original and modified portions are distributed under the MIT License in
 the accompanying LICENSE file.

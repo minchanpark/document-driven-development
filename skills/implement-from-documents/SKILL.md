@@ -54,6 +54,14 @@ locked requirement id and the artifact constraints it satisfies. Avoid unrelated
 refactoring. Follow the repository's existing conventions unless an approved
 artifact explicitly changes them.
 
+After understanding the affected flow, minimize the implementation in this
+order: add no code when the locked behavior already exists; reuse repository
+code; use the standard library or native platform; use an already-installed
+dependency; then write the smallest correct diff. Do not add speculative
+abstractions, dependencies, configuration, or files. This never permits omitting
+locked requirements, validation, security, accessibility, error handling, tests,
+traceability, or evidence. A conflict returns to document approval.
+
 ## 3. Use test-first implementation
 
 For behavior changes, write or update a test that fails for the intended reason,

@@ -165,6 +165,12 @@ evidence lookup의 amortized O(1)이다. 승인 시 ownership pair 검증, final
 replay, affected input hashing, 전체 test는 의도적으로 실제 검증량에 비례한다.
 세부 invalidation 및 호환성 규칙은 `docs/PERFORMANCE_ARCHITECTURE.md`에 둔다.
 
+구현 단계에는 Ponytail의 최소 정답 판단 순서만 압축해 이식한다. 영향 흐름을
+이해한 뒤 기존 동작, 저장소 코드, 표준 라이브러리·native platform, 이미 설치된
+dependency 순으로 재사용하고 마지막에만 최소 diff를 작성한다. 별도 상시 hook과
+전체 규칙 본문은 추가하지 않으며 provider 정책은 512 bytes 이하로 제한한다.
+이 원칙은 승인 요구사항·보안·접근성·검증·추적성을 줄이는 근거가 될 수 없다.
+
 ### CI
 
 CI는 매니페스트 스키마, 문서 승인 해시, 컨텍스트 잠금, 요구사항 ID,

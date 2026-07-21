@@ -23,6 +23,13 @@ function assert(condition, message) {
   if (!condition) throw new Error(message);
 }
 
+function verifyPromptPolicy(result, label) {
+  assert(result.promptPolicy?.id === "ddd-minimal-correct-v1", `${label}: missing prompt policy`);
+  assert(result.promptPolicy.bytes > 0, `${label}: empty prompt policy`);
+  assert(result.promptPolicy.bytes <= 512, `${label}: prompt policy exceeds 512-byte budget`);
+  assert(result.promptPolicy.injected === true, `${label}: prompt policy was not injected`);
+}
+
 const dryRuns = [];
 for (const provider of ["codex", "claude", "antigravity"]) {
   for (const role of ["architect", "reviewer"]) {
@@ -42,7 +49,13 @@ for (const provider of ["codex", "claude", "antigravity"]) {
     ], "Review the locked plan without changing files.");
     assert(result.dryRun === true, `${provider}/${role}: expected dry-run`);
     assert(result.actual.access !== "workspace-write", `${provider}/${role}: unexpected write access`);
-    dryRuns.push({ provider: result.provider, role, access: result.actual.access });
+    verifyPromptPolicy(result, `${provider}/${role}`);
+    dryRuns.push({
+      provider: result.provider,
+      role,
+      access: result.actual.access,
+      promptPolicy: result.promptPolicy,
+    });
   }
 }
 
@@ -66,6 +79,7 @@ try {
   ], "Implement only the package scope.");
   assert(coder.packageId === "backend", "Coder dry-run did not bind the Package Lock");
   assert(coder.actual.access === "workspace-write", "Coder write access was not forwarded");
+  verifyPromptPolicy(coder, "codex/coder");
 } finally {
   rmSync(temporary, { recursive: true, force: true });
 }

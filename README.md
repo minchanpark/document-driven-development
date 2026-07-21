@@ -100,6 +100,9 @@ The harness separates integrity from prompt size:
 - structured verification gates distinguish unavailable environments from
   product failures and reuse identical input/environment evidence;
 - completed runs safely garbage collect clean integrated Git worktrees.
+- a compact Ponytail-derived minimum-correct policy prefers existing code and
+  primitives without adding a second always-on hook; its provider text has a
+  512-byte budget and cannot weaken locked obligations.
 
 Use `approve-bundle` with explicit `artifact=sha256` values to record a user
 approval batch. Use `context-pack --package <id>` to regenerate or inspect a
@@ -115,5 +118,6 @@ complexity model, invalidation rules, compatibility behavior, and safety gates.
 
 The conversational design principles are adapted from Superpowers. The
 locked-plan, package decomposition, cross-review, and bounded escalation ideas
-are independently adapted from the former model-council build flow. See `NOTICE`
-and `LICENSE` for attribution and license terms.
+are independently adapted from the former model-council build flow. The compact
+minimum-correct implementation ladder is adapted from Ponytail without a runtime
+dependency. See `NOTICE` and `LICENSE` for attribution and license terms.

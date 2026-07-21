@@ -28,6 +28,14 @@ Choose the execution mode after the lock is valid:
   result into the central run, then activate an integration lock before merging
   that package's code.
 
+Apply the minimum-correct implementation policy after understanding the affected
+flow: add no code when locked behavior already exists; otherwise reuse repository
+code, then the standard library or native platform, then an already-installed
+dependency, and only then write the smallest correct diff. Do not add speculative
+abstractions, dependencies, configuration, or files. This policy never permits
+omitting locked requirements, validation, security, accessibility, error handling,
+tests, traceability, or evidence; any conflict returns to document approval.
+
 If implementation reveals a design decision not covered by the approved
 documents, stop implementation. Propose a new artifact or revision, obtain
 explicit user approval, record the approval hash, and prepare a new lock.

@@ -307,6 +307,7 @@ class DocflowScenarioTest(unittest.TestCase):
         agents = (self.root / "AGENTS.md").read_text(encoding="utf-8")
         self.assertIn("# Existing agent rules", agents)
         self.assertEqual(agents.count("<!-- document-driven-development:start -->"), 1)
+        self.assertIn("minimum-correct implementation policy", agents)
         claude = json.loads(
             (self.root / ".claude/settings.json").read_text(encoding="utf-8")
         )

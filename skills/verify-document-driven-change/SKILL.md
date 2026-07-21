@@ -38,7 +38,10 @@ Inspect the complete diff and map every changed implementation path to:
 - an executed test or approved verification
 
 Flag unrelated changes, undocumented behavior, stale generated output, and path
-rules that are too broad or too weak. Generic tooling cannot prove semantic API,
+rules that are too broad or too weak. Also flag unjustified new dependencies,
+abstractions, configuration, or files. Require the smallest correct implementation
+without reducing any locked validation, security, accessibility, test,
+traceability, or evidence obligation. Generic tooling cannot prove semantic API,
 schema, security, or infrastructure consistency; run the repository-specific
 contract, migration, policy, or deployment checks required by the artifacts.
 

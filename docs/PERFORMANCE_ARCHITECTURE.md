@@ -147,6 +147,28 @@ Runs may declare completed predecessors with repeated `start-run --supersedes
 <task-id>`. The link is provenance; it does not bypass contract or evidence
 fingerprints.
 
+## Compact minimum-correct policy
+
+The plugin adapts Ponytail's core decision ladder rather than bundling its full
+skill and lifecycle hooks. After understanding the affected flow, agents prefer:
+no new code when the behavior already exists, repository reuse, standard-library
+or native-platform features, installed dependencies, and finally the smallest
+correct diff. Speculative files, configuration, dependencies, and abstractions
+are rejected during implementation and review.
+
+This policy is placed only in the existing harness, relevant skills, and provider
+role envelope. It does not create another SessionStart or subagent hook. The
+provider copy has a stable id and a regression-enforced 512-byte maximum. The
+full upstream ruleset is intentionally not injected: Ponytail's
+[2026-06-17 cost report](https://github.com/DietrichGebert/ponytail/blob/main/benchmarks/results/2026-06-17-cost-verification.md)
+reported shorter outputs but higher total costs for the tested OpenAI reasoning
+models, where added input and reasoning tokens outweighed output savings.
+
+Minimalism is subordinate to the document graph. It cannot remove approved
+requirements, validation, security, accessibility, error handling, tests,
+traceability, or evidence. If the smallest implementation conflicts with a lock,
+the workflow returns to document approval instead of silently narrowing scope.
+
 ## Worktree lifecycle and garbage collection
 
 Imported real Git worktrees are registered automatically. A worktree can also

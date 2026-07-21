@@ -20,6 +20,9 @@ const ROLES = new Set(["architect", "coder", "reviewer"]);
 const ACCESS = new Set(["read-only", "workspace-write"]);
 const TIERS = new Set(["fast", "balanced", "deep", "maximum"]);
 const MAX_OUTPUT_BYTES = 4 * 1024 * 1024;
+const MINIMAL_IMPLEMENTATION_POLICY_ID = "ddd-minimal-correct-v1";
+const MINIMAL_IMPLEMENTATION_POLICY = "MINIMUM-CORRECT POLICY: After understanding the affected flow, reuse existing repository code, then the standard library or native platform, then installed dependencies; add the fewest files and abstractions. Never omit locked requirements, validation, security, accessibility, error handling, tests, traceability, or evidence.";
+const MINIMAL_IMPLEMENTATION_POLICY_BYTES = Buffer.byteLength(MINIMAL_IMPLEMENTATION_POLICY);
 
 function parseArgs(argv) {
   const parsed = { _: [] };
@@ -139,7 +142,7 @@ function roleEnvelope(role, access, prompt, packageLock) {
   const constraint = access === "read-only"
     ? "Do not modify files. Analyze the approved document boundary and return evidence only."
     : `Modify only package ${packageLock.package_id} paths: ${packageLock.allowed_paths.join(", ")}. Run its declared verification commands and report exact evidence.`;
-  return `[DOCUMENT-DRIVEN DEVELOPMENT TASK]\nROLE: ${role}\nACCESS: ${access}\n${constraint}\nStart with the compact context pack named by .document-driven/package-lock.json (or .document-driven/context-pack.json for a task). Open a cited full approved document only when the slice is ambiguous or a cross-cutting constraint is required. The context lock hashes remain authoritative; do not preload every locked document. A design conflict stops implementation and returns to document approval.\n\n${prompt.trim()}\n\n[RETURN]\nSeparate conclusion or changed files, document/requirement evidence, verification results, and unresolved issues.`;
+  return `[DOCUMENT-DRIVEN DEVELOPMENT TASK]\nROLE: ${role}\nACCESS: ${access}\n${constraint}\nStart with the compact context pack named by .document-driven/package-lock.json (or .document-driven/context-pack.json for a task). Open a cited full approved document only when the slice is ambiguous or a cross-cutting constraint is required. The context lock hashes remain authoritative; do not preload every locked document. A design conflict stops implementation and returns to document approval.\n${MINIMAL_IMPLEMENTATION_POLICY}\n\n${prompt.trim()}\n\n[RETURN]\nSeparate conclusion or changed files, document/requirement evidence, verification results, and unresolved issues.`;
 }
 
 async function loadPackageLock(cwd) {
@@ -274,6 +277,11 @@ async function main() {
       args: safeArgs,
       cwd: invocation.cwd,
       packageId: packageLock?.package_id || null,
+      promptPolicy: {
+        id: MINIMAL_IMPLEMENTATION_POLICY_ID,
+        bytes: MINIMAL_IMPLEMENTATION_POLICY_BYTES,
+        injected: prompt.includes(MINIMAL_IMPLEMENTATION_POLICY),
+      },
       actual: invocation.actual,
       warnings: invocation.warnings,
     }, null, 2)}\n`);
@@ -312,6 +320,10 @@ async function main() {
     status,
     sessionId: parsed.sessionId,
     packageId: packageLock?.package_id || null,
+    promptPolicy: {
+      id: MINIMAL_IMPLEMENTATION_POLICY_ID,
+      bytes: MINIMAL_IMPLEMENTATION_POLICY_BYTES,
+    },
     result: parsed.result,
     actual: invocation.actual,
     warnings: invocation.warnings,

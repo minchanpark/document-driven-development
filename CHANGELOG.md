@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.4.1 - 2026-07-22
+
+- Adapted Ponytail's core minimum-correct implementation ladder into the
+  existing harness, implementation, orchestration, review, and provider paths.
+- Kept the full Ponytail ruleset and lifecycle hooks out of the plugin to avoid
+  duplicate session injection and reasoning-token regressions.
+- Added a stable provider prompt-policy id and a regression-enforced 512-byte
+  policy budget.
+- Made approved requirements, validation, security, accessibility, tests,
+  traceability, and evidence explicitly outrank implementation minimalism.
+
 ## 0.4.0 - 2026-07-22
 
 - Replaced growing inline run histories with bounded snapshots and append-only
