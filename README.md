@@ -34,7 +34,8 @@ Run `/reload-plugins` in an active Claude Code session, or start a new session.
 
 1. `discover-document-graph` reads the PRD and repository, interviews the user,
    compares approaches, and proposes a minimal artifact graph.
-2. `author-project-document` drafts and approves one selected artifact at a time.
+2. `author-project-document` drafts and reviews one selected artifact at a
+   time, then records one or more explicitly approved hashes atomically.
 3. `generate-development-harness` installs repository instructions, hooks,
    deterministic validators, context locks, traceability, and optional GitHub CI.
 4. `prepare-documented-change` selects approved relevant artifacts and hashes
@@ -56,6 +57,8 @@ Run `/reload-plugins` in an active Claude Code session, or start a new session.
 - `.document-driven/policy.json`: repository-specific enforcement rules
 - `.document-driven/orchestration.json`: mode, review gates, loop limits, and non-secret provider routing
 - `.document-driven/context-lock.json`: task, requirement, and document hashes
+- `.document-driven/context-pack.json`: compact requirement slices bound to the
+  full locked document hashes
 - `.document-driven/package-lock.json`: active package ownership in one worktree
 - `.document-driven/runs/<task-id>/run.json`: locked plan, packages, review, and integration state
 - `.document-driven/traceability.json`: requirement-to-document/code/test links
@@ -73,6 +76,24 @@ Optional external provider adapters are available through
 `scripts/development-provider-runner.mjs`. They are not a dependency on
 `model-council`; host-native agents are the default and the DDD workflow remains
 fully functional without any external CLI.
+
+## Fast path without weaker gates
+
+The harness separates integrity from prompt size:
+
+- full approved documents remain SHA-256 locked;
+- implementers and reviewers start from generated requirement slices and open
+  full documents only for ambiguity or cross-cutting constraints;
+- package contracts can carry explicit acceptance criteria before coding;
+- identical approval hashes are reused and multi-document approval is atomic;
+- read-only shell commands and read tools are not sent through write guards;
+- lock and run validation results are reused within one guard invocation;
+- trace verification indexes entries once instead of rescanning them per
+  requirement.
+
+Use `approve-bundle` with explicit `artifact=sha256` values to record a user
+approval batch. Use `context-pack --package <id>` to regenerate or inspect a
+package-specific compact context.
 
 ## Attribution
 

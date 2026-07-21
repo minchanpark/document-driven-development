@@ -1,16 +1,26 @@
 from __future__ import annotations
 
 import hashlib
+import importlib.util
 import json
 import shutil
 import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 
 PLUGIN_ROOT = Path(__file__).resolve().parents[1]
+DOCFLOW_SPEC = importlib.util.spec_from_file_location(
+    "document_driven_docflow",
+    PLUGIN_ROOT / "scripts/docflow.py",
+)
+assert DOCFLOW_SPEC and DOCFLOW_SPEC.loader
+docflow_module = importlib.util.module_from_spec(DOCFLOW_SPEC)
+DOCFLOW_SPEC.loader.exec_module(docflow_module)
+
 DOCFLOW = PLUGIN_ROOT / "scripts/docflow.py"
 INSTALLER = PLUGIN_ROOT / "scripts/install_harness.py"
 CODEX_GUARD = PLUGIN_ROOT / "scripts/codex_pre_tool.py"
@@ -139,6 +149,73 @@ class DocflowScenarioTest(unittest.TestCase):
         manifest = json.loads((self.root / "docs/document-manifest.json").read_text(encoding="utf-8"))
         self.assertEqual(manifest["artifacts"][0]["approval"]["content_sha256"], digest(artifact))
 
+    def test_approval_bundle_is_atomic_and_reuses_identical_hashes(self) -> None:
+        foundation = self.root / "docs/FOUNDATION.md"
+        feature = self.root / "docs/FEATURE.md"
+        foundation.write_text("# Foundation\n\nREQ-1 foundation.\n", encoding="utf-8")
+        feature.write_text("# Feature\n\nREQ-1 feature.\n", encoding="utf-8")
+        artifacts = [
+            {
+                "id": "foundation",
+                "path": "docs/FOUNDATION.md",
+                "purpose": "Own the base decision",
+                "status": "reviewed",
+                "informed_by": ["prd"],
+                "depends_on": [],
+                "required_for": ["backend"],
+            },
+            {
+                "id": "feature",
+                "path": "docs/FEATURE.md",
+                "purpose": "Own the dependent decision",
+                "status": "reviewed",
+                "informed_by": ["prd"],
+                "depends_on": ["foundation"],
+                "required_for": ["backend"],
+            },
+        ]
+        write_json(
+            self.root / "docs/document-manifest.json",
+            {
+                "schema_version": "1.0",
+                "source": {"prd": "docs/PRD.md"},
+                "artifacts": artifacts,
+                "implementation_gate": {
+                    "require_relevant_documents_approved": True,
+                    "require_traceability": True,
+                },
+            },
+        )
+        command = (
+            "approve-bundle",
+            "--approval",
+            f"feature={digest(feature)}",
+            "--approval",
+            f"foundation={digest(foundation)}",
+            "--approved-by",
+            "test-user",
+        )
+        approved = self.run_docflow(*command)
+        self.assertEqual(approved.returncode, 0, approved.stderr)
+        manifest_path = self.root / "docs/document-manifest.json"
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        approved_at = {item["approval"]["approved_at"] for item in manifest["artifacts"]}
+        self.assertEqual(len(approved_at), 1)
+        before = manifest_path.read_bytes()
+        reused = self.run_docflow(*command)
+        self.assertEqual(reused.returncode, 0, reused.stderr)
+        self.assertIn("reused feature, foundation", reused.stdout)
+        self.assertEqual(manifest_path.read_bytes(), before)
+        mismatch = self.run_docflow(
+            "approve-bundle",
+            "--approval",
+            f"feature={'0' * 64}",
+            "--approved-by",
+            "test-user",
+        )
+        self.assertNotEqual(mismatch.returncode, 0)
+        self.assertEqual(manifest_path.read_bytes(), before)
+
     def test_harness_lock_guard_trace_ci_and_document_drift(self) -> None:
         self.approved_manifest()
         (self.root / "AGENTS.md").write_text("# Existing agent rules\n", encoding="utf-8")
@@ -200,6 +277,53 @@ class DocflowScenarioTest(unittest.TestCase):
         self.assertIn("antigravity_pre_tool.py", antigravity_hooks)
         self.assertIn("write_to_file", antigravity_hooks)
         self.assertIn("PreInvocation", antigravity["document-driven-development"])
+
+        read_only_payloads = [
+            {
+                "cwd": str(self.root),
+                "tool_name": "exec_command",
+                "tool_input": {
+                    "cmd": "sed -n '1,20p' docs/ARCHITECTURE.md 2>/dev/null",
+                },
+            },
+            {
+                "cwd": str(self.root),
+                "tool_name": "view_image",
+                "tool_input": {"path": "/tmp/reference.png"},
+            },
+        ]
+        for payload in read_only_payloads:
+            allowed = self.run_python(CODEX_GUARD, input_text=json.dumps(payload))
+            self.assertEqual(json.loads(allowed.stdout), {}, allowed.stdout)
+
+        explicit_workdir_payload = {
+            "cwd": "/tmp",
+            "tool_name": "exec_command",
+            "tool_input": {
+                "workdir": str(self.root),
+                "cmd": "touch src/app.py",
+            },
+        }
+        explicit_workdir_denied = json.loads(
+            self.run_python(
+                CODEX_GUARD,
+                input_text=json.dumps(explicit_workdir_payload),
+            ).stdout
+        )
+        self.assertEqual(
+            explicit_workdir_denied["hookSpecificOutput"]["permissionDecision"],
+            "deny",
+        )
+
+        in_place_payload = {
+            "cwd": str(self.root),
+            "tool_name": "exec_command",
+            "tool_input": {"cmd": "sed -i.bak 's/old/new/' src/app.py"},
+        }
+        denied = json.loads(
+            self.run_python(CODEX_GUARD, input_text=json.dumps(in_place_payload)).stdout
+        )
+        self.assertEqual(denied["hookSpecificOutput"]["permissionDecision"], "deny")
 
         policy_path = self.root / ".document-driven/policy.json"
         policy = json.loads(policy_path.read_text(encoding="utf-8"))
@@ -290,6 +414,29 @@ class DocflowScenarioTest(unittest.TestCase):
             "backend",
         )
         self.assertEqual(prepared.returncode, 0, prepared.stderr)
+        context_pack = json.loads(
+            (self.root / ".document-driven/context-pack.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(context_pack["task"]["requirement_ids"], ["REQ-1"])
+        self.assertTrue(
+            any(
+                "REQ-1" in item["text"]
+                for document in context_pack["documents"]
+                for item in document["slices"]
+            )
+        )
+        self.assertEqual(self.run_docflow("check-context-pack").returncode, 0)
+        task_context_path = self.root / ".document-driven/context-pack.json"
+        task_context_bytes = task_context_path.read_bytes()
+        task_context_path.write_text("{}\n", encoding="utf-8")
+        invalid_session = json.loads(
+            self.run_python(CODEX_SESSION, cwd=self.root).stdout
+        )
+        self.assertIn(
+            "context pack is invalid",
+            invalid_session["hookSpecificOutput"]["additionalContext"],
+        )
+        task_context_path.write_bytes(task_context_bytes)
         self.assertEqual(self.run_docflow("check-lock").returncode, 0)
         self.assertEqual(self.run_docflow("guard-edit", "--path", "src/app.py").returncode, 0)
         for guard, payload in (
@@ -345,6 +492,12 @@ class DocflowScenarioTest(unittest.TestCase):
         stale = self.run_docflow("check-lock")
         self.assertNotEqual(stale.returncode, 0)
         self.assertIn("re-approval", stale.stderr)
+        repair_allowed = self.run_docflow(
+            "guard-edit",
+            "--path",
+            "docs/ARCHITECTURE.md",
+        )
+        self.assertEqual(repair_allowed.returncode, 0, repair_allowed.stderr)
 
     def test_orchestrated_run_enforces_package_ownership_and_cross_review(self) -> None:
         self.approved_manifest()
@@ -386,6 +539,8 @@ class DocflowScenarioTest(unittest.TestCase):
             "architecture",
             "--allowed-path",
             "src/**",
+            "--acceptance",
+            "REQ-1 returns the documented health response",
             "--verification-command",
             "python -m unittest",
             "--actor",
@@ -423,6 +578,43 @@ class DocflowScenarioTest(unittest.TestCase):
             "coder-a",
         )
         self.assertEqual(activated.returncode, 0, activated.stderr)
+        package_lock = json.loads(
+            (self.root / ".document-driven/package-lock.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(
+            package_lock["acceptance_criteria"],
+            ["REQ-1 returns the documented health response"],
+        )
+        package_context = self.root / package_lock["context_pack"]
+        self.assertTrue(package_context.is_file())
+        self.assertEqual(package_lock["context_pack_sha256"], digest(package_context))
+        legacy_lock = dict(package_lock)
+        legacy_lock.pop("context_pack")
+        legacy_lock.pop("context_pack_sha256")
+        write_json(self.root / ".document-driven/package-lock.json", legacy_lock)
+        self.assertEqual(self.run_docflow("check-package-lock").returncode, 0)
+        write_json(self.root / ".document-driven/package-lock.json", package_lock)
+        package_context_value = json.loads(package_context.read_text(encoding="utf-8"))
+        self.assertEqual(package_context_value["package"]["id"], "backend")
+        original_context = package_context.read_bytes()
+        package_context.write_text("{}\n", encoding="utf-8")
+        stale_context = self.run_docflow("check-package-lock")
+        self.assertNotEqual(stale_context.returncode, 0)
+        self.assertIn("context pack changed", stale_context.stderr)
+        package_context.write_bytes(original_context)
+        self.assertEqual(self.run_docflow("check-package-lock").returncode, 0)
+        regenerated = self.run_docflow("context-pack", "--package", "backend")
+        self.assertEqual(regenerated.returncode, 0, regenerated.stderr)
+        self.assertEqual(package_lock["context_pack_sha256"], digest(package_context))
+        self.assertEqual(self.run_docflow("check-package-lock").returncode, 0)
+        with mock.patch.object(
+            docflow_module,
+            "require_valid_manifest",
+            wraps=docflow_module.require_valid_manifest,
+        ) as manifest_validation:
+            direct_allowed, _ = docflow_module.guard_edit(self.root, "src/app.py")
+        self.assertTrue(direct_allowed)
+        self.assertEqual(manifest_validation.call_count, 1)
         self.assertEqual(self.run_docflow("guard-edit", "--path", "src/app.py").returncode, 0)
         outside = self.run_docflow("guard-edit", "--path", "tests/test_app.py")
         self.assertNotEqual(outside.returncode, 0)

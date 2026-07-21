@@ -1,6 +1,6 @@
 {
   "name": "document-driven-development",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Turn a PRD into approved project documents and enforce task- or package-locked implementation.",
   "author": {
     "name": "Park Minchan"

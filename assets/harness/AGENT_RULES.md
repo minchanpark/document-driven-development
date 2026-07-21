@@ -13,6 +13,8 @@ generated contracts:
 3. Prepare the task with `.document-driven/bin/docflow.py prepare`, including a
    task id, at least one PRD requirement id, and relevant scope or artifact ids.
 4. Re-run `check-lock` immediately before implementation.
+5. Read the generated context pack first. Open full locked documents when a
+   cited slice is ambiguous or a cross-cutting constraint applies.
 
 Choose the execution mode after the lock is valid:
 

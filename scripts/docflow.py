@@ -20,9 +20,18 @@ STATE_REL = Path(".document-driven")
 LOCK_REL = STATE_REL / "context-lock.json"
 POLICY_REL = STATE_REL / "policy.json"
 TRACE_REL = STATE_REL / "traceability.json"
+CONTEXT_PACK_REL = STATE_REL / "context-pack.json"
 ORCHESTRATION_REL = STATE_REL / "orchestration.json"
 PACKAGE_LOCK_REL = STATE_REL / "package-lock.json"
 RUNS_REL = STATE_REL / "runs"
+CONTEXT_MATCH_LIMIT = 2
+CONTEXT_WINDOW_LINES = 4
+CONTEXT_OUTLINE_LIMIT = 30
+CONTEXT_INSTRUCTIONS = (
+    "Use these approved requirement slices first.",
+    "Open a cited full document only when the slice is ambiguous or a cross-cutting constraint is required.",
+    "The full document hashes remain authoritative and are verified by the context lock.",
+)
 STATUSES = ("proposed", "drafting", "reviewed", "approved", "superseded")
 TRANSITIONS = {
     "proposed": {"drafting", "superseded"},
@@ -490,12 +499,17 @@ def _matches(path: str, patterns: Iterable[str]) -> bool:
     return any(fnmatch.fnmatch(path, pattern) for pattern in patterns)
 
 
-def check_lock(root: Path) -> tuple[dict[str, Any] | None, list[str]]:
+def check_lock(
+    root: Path,
+    *,
+    manifest: dict[str, Any] | None = None,
+) -> tuple[dict[str, Any] | None, list[str]]:
     errors: list[str] = []
-    try:
-        manifest = require_valid_manifest(root)
-    except DocflowError as exc:
-        return None, [str(exc)]
+    if manifest is None:
+        try:
+            manifest = require_valid_manifest(root)
+        except DocflowError as exc:
+            return None, [str(exc)]
     lock_path = root / LOCK_REL
     try:
         lock = load_json(lock_path)
@@ -566,15 +580,21 @@ def _normalize_pattern(raw: str) -> str:
     return value
 
 
-def check_run(root: Path, task_id: str | None = None) -> tuple[dict[str, Any] | None, list[str]]:
+def check_run(
+    root: Path,
+    task_id: str | None = None,
+    *,
+    lock: dict[str, Any] | None = None,
+) -> tuple[dict[str, Any] | None, list[str]]:
     errors: list[str] = []
     try:
         orchestration = load_orchestration(root)
     except DocflowError as exc:
         return None, [str(exc)]
-    lock, lock_errors = check_lock(root)
-    if lock_errors or not lock:
-        return None, lock_errors
+    if lock is None:
+        lock, lock_errors = check_lock(root)
+        if lock_errors or not lock:
+            return None, lock_errors
     active_task_id = lock["task"]["id"]
     if task_id and task_id != active_task_id:
         errors.append(f"Run task {task_id} does not match active context task {active_task_id}")
@@ -667,6 +687,9 @@ def check_run(root: Path, task_id: str | None = None) -> tuple[dict[str, Any] | 
         commands = package.get("verification_commands")
         if not _string_list(commands) or not commands:
             errors.append(f"{label}.verification_commands must be a non-empty string array")
+        acceptance = package.get("acceptance_criteria", [])
+        if acceptance and not _string_list(acceptance):
+            errors.append(f"{label}.acceptance_criteria must be a string array")
         if not isinstance(package.get("events", []), list):
             errors.append(f"{label}.events must be an array")
         else:
@@ -708,7 +731,12 @@ def check_run(root: Path, task_id: str | None = None) -> tuple[dict[str, Any] | 
     return run, errors
 
 
-def check_package_lock(root: Path) -> tuple[dict[str, Any] | None, list[str]]:
+def check_package_lock(
+    root: Path,
+    *,
+    lock: dict[str, Any] | None = None,
+    run: dict[str, Any] | None = None,
+) -> tuple[dict[str, Any] | None, list[str]]:
     package_lock_path = root / PACKAGE_LOCK_REL
     if not package_lock_path.is_file():
         return None, []
@@ -719,18 +747,20 @@ def check_package_lock(root: Path) -> tuple[dict[str, Any] | None, list[str]]:
         return None, [str(exc)]
     if package_lock.get("schema_version") != "1.0":
         errors.append("package-lock.json schema_version must be '1.0'")
-    lock, lock_errors = check_lock(root)
-    errors.extend(lock_errors)
-    if not lock:
-        return package_lock, errors
+    if lock is None:
+        lock, lock_errors = check_lock(root)
+        errors.extend(lock_errors)
+        if not lock:
+            return package_lock, errors
     if package_lock.get("task_id") != lock["task"]["id"]:
         errors.append("Package lock task does not match the active context lock")
     if package_lock.get("context_lock_sha256") != sha256_file(root / LOCK_REL):
         errors.append("Package lock is stale because context-lock.json changed")
-    run, run_errors = check_run(root, lock["task"]["id"])
-    errors.extend(run_errors)
-    if not run:
-        return package_lock, errors
+    if run is None:
+        run, run_errors = check_run(root, lock["task"]["id"], lock=lock)
+        errors.extend(run_errors)
+        if not run:
+            return package_lock, errors
     package_id = package_lock.get("package_id")
     package = next(
         (item for item in run.get("packages", []) if isinstance(item, dict) and item.get("id") == package_id),
@@ -753,6 +783,26 @@ def check_package_lock(root: Path) -> tuple[dict[str, Any] | None, list[str]]:
         errors.append("Package requirements changed after activation")
     if package_lock.get("artifact_ids") != package.get("artifact_ids"):
         errors.append("Package artifacts changed after activation")
+    if package_lock.get("acceptance_criteria", []) != package.get("acceptance_criteria", []):
+        errors.append("Package acceptance criteria changed after activation")
+    context_pack = package_lock.get("context_pack")
+    context_pack_sha256 = package_lock.get("context_pack_sha256")
+    if context_pack is None and context_pack_sha256 is None:
+        pass  # Backward-compatible lock created before compact contexts existed.
+    elif not isinstance(context_pack, str) or not isinstance(context_pack_sha256, str):
+        errors.append("Package lock context pack metadata is incomplete")
+    else:
+        try:
+            pack_path = repo_path(root, context_pack)
+            if not pack_path.is_file():
+                errors.append(f"Package context pack is missing: {context_pack}")
+            elif sha256_file(pack_path) != context_pack_sha256:
+                errors.append("Package context pack changed after activation")
+            else:
+                pack = load_json(pack_path)
+                errors.extend(validate_context_pack(root, lock, pack, package=package))
+        except DocflowError as exc:
+            errors.append(str(exc))
     return package_lock, errors
 
 
@@ -779,12 +829,25 @@ def is_documentation_path(root: Path, manifest: dict[str, Any], policy: dict[str
 
 def guard_edit(root: Path, raw_path: str) -> tuple[bool, str]:
     try:
-        manifest = require_valid_manifest(root)
         policy = load_policy(root)
         path = relative_path(root, raw_path)
     except DocflowError as exc:
         return False, str(exc)
-    package_lock, package_errors = check_package_lock(root)
+    package_lock_exists = (root / PACKAGE_LOCK_REL).is_file()
+    if not package_lock_exists and _matches(path, policy.get("documentation_paths", [])):
+        return True, f"Documentation or harness path allowed: {path}"
+    try:
+        manifest = require_valid_manifest(root)
+    except DocflowError as exc:
+        return False, str(exc)
+    lock: dict[str, Any] | None = None
+    if package_lock_exists:
+        lock, lock_errors = check_lock(root, manifest=manifest)
+        if lock_errors or not lock:
+            return False, "Package write blocked. " + " ".join(lock_errors)
+        package_lock, package_errors = check_package_lock(root, lock=lock)
+    else:
+        package_lock, package_errors = None, []
     if package_lock:
         if package_errors:
             return False, "Package write blocked. " + " ".join(package_errors)
@@ -798,12 +861,15 @@ def guard_edit(root: Path, raw_path: str) -> tuple[bool, str]:
             )
     elif is_documentation_path(root, manifest, policy, path):
         return True, f"Documentation or harness path allowed: {path}"
-    lock, errors = check_lock(root)
+    if lock is None:
+        lock, errors = check_lock(root, manifest=manifest)
+    else:
+        errors = []
     if errors or not lock:
         return False, "Implementation write blocked. " + " ".join(errors)
     current_run_path = run_path(root, lock["task"]["id"])
     if not package_lock and current_run_path.is_file():
-        run, run_errors = check_run(root, lock["task"]["id"])
+        run, run_errors = check_run(root, lock["task"]["id"], lock=lock)
         if run_errors or not run:
             return False, "Implementation write blocked by invalid run. " + " ".join(run_errors)
         if run.get("status") != "completed":
@@ -890,6 +956,316 @@ def cmd_approve(args: argparse.Namespace) -> None:
     print(f"Approved {args.artifact} at sha256:{artifact['approval']['content_sha256']}")
 
 
+def _approval_specs(values: Iterable[str]) -> dict[str, str]:
+    result: dict[str, str] = {}
+    for raw in values:
+        artifact_id, separator, expected_hash = raw.partition("=")
+        if (
+            not separator
+            or not SAFE_ID.fullmatch(artifact_id)
+            or not re.fullmatch(r"[0-9a-f]{64}", expected_hash)
+        ):
+            raise DocflowError(
+                "Each --approval must use artifact-id=<64-character lowercase sha256>"
+            )
+        previous = result.get(artifact_id)
+        if previous and previous != expected_hash:
+            raise DocflowError(f"Conflicting approval hashes for {artifact_id}")
+        result[artifact_id] = expected_hash
+    if not result:
+        raise DocflowError("At least one --approval is required")
+    return result
+
+
+def cmd_approve_bundle(args: argparse.Namespace) -> None:
+    root = find_root(args.root)
+    manifest = require_valid_manifest(root)
+    amap = artifact_map(manifest)
+    approvals = _approval_specs(args.approval or [])
+    pending: dict[str, tuple[dict[str, Any], str]] = {}
+    unchanged: list[str] = []
+    for artifact_id, expected_hash in approvals.items():
+        artifact = amap.get(artifact_id)
+        if not artifact:
+            raise DocflowError(f"Unknown artifact id: {artifact_id}")
+        path = repo_path(root, artifact["path"])
+        if not path.is_file():
+            raise DocflowError(f"Artifact does not exist: {artifact['path']}")
+        actual_hash = sha256_file(path)
+        if actual_hash != expected_hash:
+            raise DocflowError(
+                f"Approval hash mismatch for {artifact_id}: expected {expected_hash}, got {actual_hash}"
+            )
+        if artifact.get("status") == "approved":
+            approved_hash = artifact.get("approval", {}).get("content_sha256")
+            if approved_hash != expected_hash:
+                raise DocflowError(f"Approved artifact hash is inconsistent: {artifact_id}")
+            unchanged.append(artifact_id)
+            continue
+        if artifact.get("status") != "reviewed":
+            raise DocflowError(f"Only a reviewed artifact can be approved: {artifact_id}")
+        pending[artifact_id] = (artifact, actual_hash)
+
+    for artifact_id, (artifact, _) in pending.items():
+        for dependency in artifact.get("depends_on", []):
+            if dependency not in pending and amap[dependency].get("status") != "approved":
+                raise DocflowError(
+                    f"Approve dependency first or include it in the same bundle: {artifact_id} -> {dependency}"
+                )
+
+    approved_at = utc_now()
+    for artifact, content_hash in pending.values():
+        artifact["status"] = "approved"
+        artifact["approval"] = {
+            "approved_by": args.approved_by,
+            "approved_at": approved_at,
+            "content_sha256": content_hash,
+        }
+    if pending:
+        write_json(root / MANIFEST_REL, manifest)
+    summary = []
+    if pending:
+        summary.append("approved " + ", ".join(pending))
+    if unchanged:
+        summary.append("reused " + ", ".join(unchanged))
+    print("Approval bundle: " + "; ".join(summary))
+
+
+def _context_ranges(lines: list[str], requirements: list[str]) -> list[tuple[int, int, set[str]]]:
+    ranges: list[tuple[int, int, set[str]]] = []
+    for requirement in requirements:
+        matches = [
+            index for index, line in enumerate(lines) if requirement in line
+        ][:CONTEXT_MATCH_LIMIT]
+        for index in matches:
+            ranges.append(
+                (
+                    max(0, index - CONTEXT_WINDOW_LINES),
+                    min(len(lines), index + CONTEXT_WINDOW_LINES + 1),
+                    {requirement},
+                )
+            )
+    ranges.sort(key=lambda item: (item[0], item[1]))
+    merged: list[tuple[int, int, set[str]]] = []
+    for start, end, matched in ranges:
+        if merged and start <= merged[-1][1]:
+            prior_start, prior_end, prior_matched = merged[-1]
+            merged[-1] = (prior_start, max(prior_end, end), prior_matched | matched)
+        else:
+            merged.append((start, end, set(matched)))
+    return merged
+
+
+def build_context_pack(
+    root: Path,
+    lock: dict[str, Any],
+    *,
+    requirements: list[str],
+    artifact_ids: list[str],
+    package: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    wanted = {"prd", *artifact_ids}
+    documents: list[dict[str, Any]] = []
+    for document in lock.get("documents", []):
+        if document.get("id") not in wanted:
+            continue
+        path = repo_path(root, document["path"])
+        lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+        outline = [
+            {"line": index + 1, "text": line.strip()}
+            for index, line in enumerate(lines)
+            if re.match(r"^#{1,6}\s+", line)
+        ][:CONTEXT_OUTLINE_LIMIT]
+        slices = []
+        for start, end, matched in _context_ranges(lines, requirements):
+            text = "\n".join(lines[start:end])
+            slices.append(
+                {
+                    "requirement_ids": sorted(matched),
+                    "start_line": start + 1,
+                    "end_line": end,
+                    "sha256": sha256_bytes(text.encode("utf-8")),
+                    "text": text,
+                }
+            )
+        documents.append(
+            {
+                "id": document["id"],
+                "path": document["path"],
+                "sha256": document["sha256"],
+                "outline": outline,
+                "slices": slices,
+            }
+        )
+    task = lock["task"]
+    pack: dict[str, Any] = {
+        "schema_version": "1.0",
+        "generated_at": lock.get("created_at", ""),
+        "context_lock_sha256": sha256_file(root / LOCK_REL),
+        "task": {
+            "id": task["id"],
+            "summary": task.get("summary", ""),
+            "requirement_ids": requirements,
+        },
+        "artifact_ids": artifact_ids,
+        "documents": documents,
+        "instructions": list(CONTEXT_INSTRUCTIONS),
+    }
+    if package is not None:
+        pack["package"] = {
+            "id": package["id"],
+            "summary": package.get("summary", ""),
+            "allowed_paths": package.get("allowed_paths", []),
+            "acceptance_criteria": package.get("acceptance_criteria", []),
+            "verification_commands": package.get("verification_commands", []),
+        }
+    return pack
+
+
+def validate_context_pack(
+    root: Path,
+    lock: dict[str, Any],
+    pack: dict[str, Any],
+    *,
+    package: dict[str, Any] | None = None,
+) -> list[str]:
+    errors: list[str] = []
+    if pack.get("schema_version") != "1.0":
+        errors.append("Context pack schema_version must be '1.0'")
+    if pack.get("context_lock_sha256") != sha256_file(root / LOCK_REL):
+        errors.append("Context pack is stale because context-lock.json changed")
+    if pack.get("generated_at") != lock.get("created_at", ""):
+        errors.append("Context pack generation marker does not match the lock")
+    if pack.get("instructions") != list(CONTEXT_INSTRUCTIONS):
+        errors.append("Context pack instructions changed")
+    expected_requirements = (
+        package.get("requirement_ids", []) if package else lock["task"]["requirement_ids"]
+    )
+    expected_artifacts = package.get("artifact_ids", []) if package else lock["selected_artifact_ids"]
+    task = pack.get("task")
+    if not isinstance(task, dict) or task.get("id") != lock["task"]["id"]:
+        errors.append("Context pack task does not match the active lock")
+    elif task.get("requirement_ids") != expected_requirements:
+        errors.append("Context pack requirements do not match its task or package")
+    elif task.get("summary") != lock["task"].get("summary", ""):
+        errors.append("Context pack task summary does not match the active lock")
+    if pack.get("artifact_ids") != expected_artifacts:
+        errors.append("Context pack artifacts do not match its task or package")
+    if package is not None:
+        package_value = pack.get("package")
+        expected_package = {
+            "id": package["id"],
+            "summary": package.get("summary", ""),
+            "allowed_paths": package.get("allowed_paths", []),
+            "acceptance_criteria": package.get("acceptance_criteria", []),
+            "verification_commands": package.get("verification_commands", []),
+        }
+        if package_value != expected_package:
+            errors.append("Context pack package does not match the active package")
+
+    locked_documents = {
+        item.get("id"): item
+        for item in lock.get("documents", [])
+        if isinstance(item, dict) and isinstance(item.get("id"), str)
+    }
+    expected_document_ids = {"prd", *expected_artifacts}
+    documents = pack.get("documents")
+    if not isinstance(documents, list):
+        return [*errors, "Context pack documents must be an array"]
+    seen: set[str] = set()
+    for document in documents:
+        if not isinstance(document, dict) or not isinstance(document.get("id"), str):
+            errors.append("Context pack has an invalid document entry")
+            continue
+        document_id = document["id"]
+        if document_id in seen:
+            errors.append(f"Context pack has a duplicate document: {document_id}")
+        seen.add(document_id)
+        locked = locked_documents.get(document_id)
+        if (
+            not locked
+            or document.get("path") != locked.get("path")
+            or document.get("sha256") != locked.get("sha256")
+        ):
+            errors.append(f"Context pack document is not bound to the lock: {document_id}")
+            continue
+        try:
+            lines = repo_path(root, locked["path"]).read_text(
+                encoding="utf-8", errors="replace"
+            ).splitlines()
+        except (DocflowError, OSError) as exc:
+            errors.append(str(exc))
+            continue
+        expected_outline = [
+            {"line": index + 1, "text": line.strip()}
+            for index, line in enumerate(lines)
+            if re.match(r"^#{1,6}\s+", line)
+        ][:CONTEXT_OUTLINE_LIMIT]
+        if document.get("outline") != expected_outline:
+            errors.append(f"Context pack outline changed: {document_id}")
+        slices = document.get("slices")
+        if not isinstance(slices, list):
+            errors.append(f"Context pack slices must be an array: {document_id}")
+            continue
+        for item in slices:
+            if not isinstance(item, dict):
+                errors.append(f"Invalid context slice: {document_id}")
+                continue
+            start = item.get("start_line")
+            end = item.get("end_line")
+            if not isinstance(start, int) or not isinstance(end, int) or start < 1 or end < start:
+                errors.append(f"Invalid context slice range: {document_id}")
+                continue
+            actual_text = "\n".join(lines[start - 1 : end])
+            matched_requirements = item.get("requirement_ids")
+            if (
+                not _string_list(matched_requirements)
+                or not matched_requirements
+                or not set(matched_requirements).issubset(set(expected_requirements))
+                or any(requirement not in actual_text for requirement in matched_requirements)
+            ):
+                errors.append(f"Context slice requirement labels changed: {document_id}:{start}-{end}")
+            if item.get("text") != actual_text:
+                errors.append(f"Context slice text changed: {document_id}:{start}-{end}")
+            if item.get("sha256") != sha256_bytes(actual_text.encode("utf-8")):
+                errors.append(f"Context slice hash changed: {document_id}:{start}-{end}")
+    missing = sorted(expected_document_ids - seen)
+    unexpected = sorted(seen - expected_document_ids)
+    if missing:
+        errors.append("Context pack is missing documents: " + ", ".join(missing))
+    if unexpected:
+        errors.append("Context pack has unexpected documents: " + ", ".join(unexpected))
+    return errors
+
+
+def context_pack_path(root: Path, task_id: str, package_id: str | None = None) -> Path:
+    if package_id is None:
+        return root / CONTEXT_PACK_REL
+    return run_path(root, task_id).parent / "context" / f"{package_id}.json"
+
+
+def write_context_pack(
+    root: Path,
+    lock: dict[str, Any],
+    *,
+    requirements: list[str],
+    artifact_ids: list[str],
+    package: dict[str, Any] | None = None,
+) -> Path:
+    path = context_pack_path(root, lock["task"]["id"], package.get("id") if package else None)
+    write_json(
+        path,
+        build_context_pack(
+            root,
+            lock,
+            requirements=requirements,
+            artifact_ids=artifact_ids,
+            package=package,
+        ),
+    )
+    return path
+
+
 def cmd_prepare(args: argparse.Namespace) -> None:
     root = find_root(args.root)
     safe_id(args.task_id, "task id")
@@ -952,7 +1328,78 @@ def cmd_prepare(args: argparse.Namespace) -> None:
     }
     write_json(root / LOCK_REL, lock)
     (root / PACKAGE_LOCK_REL).unlink(missing_ok=True)
+    write_context_pack(
+        root,
+        lock,
+        requirements=requirements,
+        artifact_ids=ordered,
+    )
     print(f"Prepared task {args.task_id} with artifacts: {', '.join(ordered)}")
+
+
+def cmd_context_pack(args: argparse.Namespace) -> None:
+    root = find_root(args.root)
+    lock, errors = check_lock(root)
+    if errors or not lock:
+        raise DocflowError("Cannot build context pack with invalid lock:\n- " + "\n- ".join(errors))
+    package = None
+    requirements = list(lock["task"]["requirement_ids"])
+    artifacts = list(lock["selected_artifact_ids"])
+    if args.package:
+        run, run_errors = check_run(root, lock=lock)
+        if run_errors or not run:
+            raise DocflowError("Cannot build package context:\n- " + "\n- ".join(run_errors))
+        package = next(
+            (item for item in run.get("packages", []) if item.get("id") == args.package),
+            None,
+        )
+        if not package:
+            raise DocflowError(f"Unknown package id: {args.package}")
+        requirements = list(package["requirement_ids"])
+        artifacts = list(package["artifact_ids"])
+    pack = build_context_pack(
+        root,
+        lock,
+        requirements=requirements,
+        artifact_ids=artifacts,
+        package=package,
+    )
+    if args.stdout:
+        sys.stdout.write(json_bytes(pack).decode("utf-8"))
+        return
+    output = context_pack_path(
+        root, lock["task"]["id"], package.get("id") if package else None
+    )
+    write_json(output, pack)
+    print(f"Wrote context pack: {output.relative_to(root)}")
+
+
+def cmd_check_context_pack(args: argparse.Namespace) -> None:
+    root = find_root(args.root)
+    lock, errors = check_lock(root)
+    if errors or not lock:
+        raise DocflowError("Cannot check context pack with invalid lock:\n- " + "\n- ".join(errors))
+    package = None
+    if args.package:
+        run, run_errors = check_run(root, lock=lock)
+        if run_errors or not run:
+            raise DocflowError("Cannot check package context:\n- " + "\n- ".join(run_errors))
+        package = next(
+            (item for item in run.get("packages", []) if item.get("id") == args.package),
+            None,
+        )
+        if not package:
+            raise DocflowError(f"Unknown package id: {args.package}")
+    path = (
+        repo_path(root, args.path)
+        if args.path
+        else context_pack_path(root, lock["task"]["id"], package.get("id") if package else None)
+    )
+    pack = load_json(path)
+    pack_errors = validate_context_pack(root, lock, pack, package=package)
+    if pack_errors:
+        raise DocflowError("Context pack invalid:\n- " + "\n- ".join(pack_errors))
+    print(f"Context pack valid: {path.relative_to(root)}")
 
 
 def cmd_check_lock(args: argparse.Namespace) -> None:
@@ -1048,6 +1495,7 @@ def cmd_add_package(args: argparse.Namespace) -> None:
         "artifact_ids": artifacts,
         "depends_on": list(dict.fromkeys(args.depends_on or [])),
         "allowed_paths": allowed_paths,
+        "acceptance_criteria": list(dict.fromkeys(args.acceptance or [])),
         "verification_commands": list(dict.fromkeys(args.verification_command or [])),
         "status": "planned",
         "events": [_event(args.actor, "planned", "Work package defined")],
@@ -1121,8 +1569,18 @@ def cmd_activate_package(args: argparse.Namespace) -> None:
         "requirement_ids": package["requirement_ids"],
         "artifact_ids": package["artifact_ids"],
         "allowed_paths": package["allowed_paths"],
+        "acceptance_criteria": package.get("acceptance_criteria", []),
         "verification_commands": package["verification_commands"],
     }
+    pack_path = write_context_pack(
+        root,
+        lock,
+        requirements=list(package["requirement_ids"]),
+        artifact_ids=list(package["artifact_ids"]),
+        package=package,
+    )
+    package_lock["context_pack"] = pack_path.relative_to(root).as_posix()
+    package_lock["context_pack_sha256"] = sha256_file(pack_path)
     write_json(active_lock, package_lock)
     print(f"Activated package {package['id']}")
 
@@ -1172,6 +1630,7 @@ def cmd_import_package_result(args: argparse.Namespace) -> None:
         "artifact_ids",
         "depends_on",
         "allowed_paths",
+        "acceptance_criteria",
         "verification_commands",
     )
     changed = [
@@ -1230,9 +1689,19 @@ def cmd_activate_integration(args: argparse.Namespace) -> None:
         "requirement_ids": package["requirement_ids"],
         "artifact_ids": package["artifact_ids"],
         "allowed_paths": package["allowed_paths"],
+        "acceptance_criteria": package.get("acceptance_criteria", []),
         "verification_commands": package["verification_commands"],
         "actor": args.actor,
     }
+    pack_path = write_context_pack(
+        root,
+        lock,
+        requirements=list(package["requirement_ids"]),
+        artifact_ids=list(package["artifact_ids"]),
+        package=package,
+    )
+    integration_lock["context_pack"] = pack_path.relative_to(root).as_posix()
+    integration_lock["context_pack_sha256"] = sha256_file(pack_path)
     write_json(existing, integration_lock)
     print(f"Activated integration lock for package {args.package}")
 
@@ -1410,18 +1879,19 @@ def verify_traceability(root: Path, lock: dict[str, Any], policy: dict[str, Any]
     if trace.get("schema_version") != "1.0" or not isinstance(trace.get("entries"), list):
         return ["traceability.json must have schema_version '1.0' and an entries array"]
     selected = set(lock.get("selected_artifact_ids", []))
+    entry_index: dict[tuple[str, str], dict[str, Any]] = {}
+    for item in trace["entries"]:
+        if (
+            isinstance(item, dict)
+            and isinstance(item.get("task_id"), str)
+            and isinstance(item.get("requirement_id"), str)
+        ):
+            entry_index[(item["task_id"], item["requirement_id"])] = item
     for requirement in lock["task"]["requirement_ids"]:
-        matches = [
-            entry
-            for entry in trace["entries"]
-            if isinstance(entry, dict)
-            and entry.get("task_id") == lock["task"]["id"]
-            and entry.get("requirement_id") == requirement
-        ]
-        if not matches:
+        entry = entry_index.get((lock["task"]["id"], requirement))
+        if entry is None:
             errors.append(f"Missing traceability entry for {requirement}")
             continue
-        entry = matches[-1]
         documents = set(entry.get("documents", [])) if isinstance(entry.get("documents"), list) else set()
         if not selected.issubset(documents):
             errors.append(f"Trace for {requirement} does not include every locked artifact")
@@ -1590,6 +2060,15 @@ def build_parser() -> argparse.ArgumentParser:
     approve.add_argument("--approved-by", required=True)
     approve.set_defaults(func=cmd_approve)
 
+    approve_bundle = sub.add_parser(
+        "approve-bundle",
+        help="Atomically approve reviewed artifacts at explicit content hashes",
+    )
+    approve_bundle.add_argument("--root", default=".")
+    approve_bundle.add_argument("--approval", action="append", required=True)
+    approve_bundle.add_argument("--approved-by", required=True)
+    approve_bundle.set_defaults(func=cmd_approve_bundle)
+
     prepare = sub.add_parser("prepare", help="Create a task lock from approved relevant artifacts")
     prepare.add_argument("--root", default=".")
     prepare.add_argument("--task-id", required=True)
@@ -1598,6 +2077,24 @@ def build_parser() -> argparse.ArgumentParser:
     prepare.add_argument("--scope", action="append")
     prepare.add_argument("--artifact", action="append")
     prepare.set_defaults(func=cmd_prepare)
+
+    context_pack = sub.add_parser(
+        "context-pack",
+        help="Build a compact requirement-sliced context from the current lock",
+    )
+    context_pack.add_argument("--root", default=".")
+    context_pack.add_argument("--package")
+    context_pack.add_argument("--stdout", action="store_true")
+    context_pack.set_defaults(func=cmd_context_pack)
+
+    check_context_pack = sub.add_parser(
+        "check-context-pack",
+        help="Verify compact context slices against the current lock and source documents",
+    )
+    check_context_pack.add_argument("--root", default=".")
+    check_context_pack.add_argument("--package")
+    check_context_pack.add_argument("--path")
+    check_context_pack.set_defaults(func=cmd_check_context_pack)
 
     check = sub.add_parser("check-lock", help="Verify that the current task lock is still valid")
     check.add_argument("--root", default=".")
@@ -1621,6 +2118,7 @@ def build_parser() -> argparse.ArgumentParser:
     add_package.add_argument("--artifact", action="append", required=True)
     add_package.add_argument("--depends-on", action="append")
     add_package.add_argument("--allowed-path", action="append", required=True)
+    add_package.add_argument("--acceptance", action="append")
     add_package.add_argument("--verification-command", action="append", required=True)
     add_package.add_argument("--actor", required=True)
     add_package.set_defaults(func=cmd_add_package)

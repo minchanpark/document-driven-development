@@ -15,10 +15,31 @@ import docflow
 
 
 PATCH_PATH = re.compile(r"^\*\*\* (?:Add|Update|Delete) File: (.+)$", re.MULTILINE)
-REDIRECT_PATH = re.compile(r"(?:^|\s)(?:>|>>|1>|1>>|2>|2>>)\s*['\"]?([^\s'\";&|]+)")
-MUTATING_SHELL = re.compile(
-    r"(?:^|[;&|]\s*|\s)(?:apply_patch|sed\s+-i|perl\s+-pi|tee|touch|mkdir|rm|mv|cp|install|truncate|(?:npm|pnpm|yarn|pip|pip3)\s+install)\b"
+REDIRECT_PATH = re.compile(
+    r"(?:^|[\s;&|])(?P<fd>\d*)(?P<operator>>>?)\s*(?!&)(?:['\"])?(?P<path>[^\s'\";&|]+)"
 )
+PACKAGE_INSTALL = re.compile(r"(?:^|[;&|]\s*|\s)(?:npm|pnpm|yarn|pip|pip3)\s+install\b")
+WRITE_TOOL_NAMES = {
+    "apply_patch",
+    "edit",
+    "write",
+    "write_to_file",
+    "replace_file_content",
+    "multi_replace_file_content",
+}
+SHELL_TOOL_NAMES = {"bash", "shell", "exec_command", "run_command"}
+SHELL_COMMANDS_WITH_TARGETS = {
+    "touch",
+    "mkdir",
+    "rm",
+    "mv",
+    "cp",
+    "install",
+    "truncate",
+    "tee",
+    "sed",
+    "perl",
+}
 
 
 def read_payload() -> dict[str, Any]:
@@ -39,7 +60,9 @@ def payload_value(payload: dict[str, Any], *names: str, default: Any = None) -> 
     return default
 
 
-def tool_paths(tool_input: Any) -> list[str]:
+def tool_paths(tool_name: str, tool_input: Any) -> list[str]:
+    if tool_name.lower() not in WRITE_TOOL_NAMES:
+        return []
     found: list[str] = []
 
     def visit(value: Any, key: str = "") -> None:
@@ -60,39 +83,94 @@ def tool_paths(tool_input: Any) -> list[str]:
     return list(dict.fromkeys(found))
 
 
+def _shell_segments(command: str) -> list[list[str]]:
+    try:
+        lexer = shlex.shlex(command, posix=True, punctuation_chars=";&|")
+        lexer.whitespace_split = True
+        tokens = list(lexer)
+    except ValueError:
+        return []
+    segments: list[list[str]] = []
+    current: list[str] = []
+    for token in tokens:
+        if token in {";", "&&", "||", "|", "&"}:
+            if current:
+                segments.append(current)
+                current = []
+        else:
+            current.append(token)
+    if current:
+        segments.append(current)
+    return segments
+
+
+def _command_index(tokens: list[str]) -> int | None:
+    index = 0
+    while index < len(tokens) and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*=.*", tokens[index]):
+        index += 1
+    if index < len(tokens) and Path(tokens[index]).name in {"command", "env", "sudo"}:
+        index += 1
+        while index < len(tokens) and tokens[index].startswith("-"):
+            index += 1
+        while index < len(tokens) and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*=.*", tokens[index]):
+            index += 1
+    return index if index < len(tokens) else None
+
+
+def _redirect_paths(command: str) -> list[str]:
+    paths: list[str] = []
+    for match in REDIRECT_PATH.finditer(command):
+        path = match.group("path")
+        if path in {"/dev/null", "/dev/stdout", "/dev/stderr"}:
+            continue
+        paths.append(path)
+    return paths
+
+
+def _in_place_edit(base: str, options: list[str]) -> bool:
+    if base == "sed":
+        return any(
+            option == "-i"
+            or option.startswith("-i.")
+            or option == "--in-place"
+            or option.startswith("--in-place=")
+            for option in options
+        )
+    if base == "perl":
+        return any(
+            option == "--in-place"
+            or option.startswith("--in-place=")
+            or (option.startswith("-") and not option.startswith("--") and "i" in option[1:])
+            for option in options
+        )
+    return False
+
+
 def shell_write_paths(command: str) -> tuple[list[str], bool]:
     paths = [match.strip() for match in PATCH_PATH.findall(command)]
-    paths.extend(match.strip() for match in REDIRECT_PATH.findall(command))
-    mutating = bool(paths or MUTATING_SHELL.search(command))
-    try:
-        tokens = shlex.split(command)
-    except ValueError:
-        tokens = []
-    commands_with_targets = {
-        "touch",
-        "mkdir",
-        "rm",
-        "mv",
-        "cp",
-        "install",
-        "truncate",
-        "tee",
-        "sed",
-        "perl",
-    }
-    for index, token in enumerate(tokens):
-        base = Path(token).name
-        if base not in commands_with_targets:
+    paths.extend(_redirect_paths(command))
+    mutating = bool(paths or PACKAGE_INSTALL.search(command))
+    for segment in _shell_segments(command):
+        index = _command_index(segment)
+        if index is None:
             continue
-        operands: list[str] = []
-        for candidate in tokens[index + 1 :]:
-            if candidate in {";", "&&", "||", "|"}:
-                break
-            if not candidate.startswith("-"):
-                operands.append(candidate)
+        base = Path(segment[index]).name
+        if base == "apply_patch":
+            mutating = True
+            continue
+        if base not in SHELL_COMMANDS_WITH_TARGETS:
+            continue
+        arguments = segment[index + 1 :]
+        options = [candidate for candidate in arguments if candidate.startswith("-")]
+        operands = [candidate for candidate in arguments if candidate and not candidate.startswith("-")]
+        if base in {"sed", "perl"} and not _in_place_edit(base, options):
+            continue
+        mutating = True
         if base in {"mv", "cp", "install"} and operands:
             paths.append(operands[-1])
-        elif base in {"sed", "perl", "tee"} and operands:
+        elif base in {"sed", "perl"} and operands:
+            paths.append(operands[-1])
+        elif base == "tee" and operands:
             paths.append(operands[-1])
         elif base in {"touch", "mkdir", "rm", "truncate"}:
             paths.extend(operands)
@@ -120,7 +198,15 @@ def normalized_call(payload: dict[str, Any]) -> tuple[str, Any, str]:
     tool_input = payload_value(payload, "tool_input", "toolInput", default={})
     if not isinstance(tool_input, dict):
         tool_input = {}
-    cwd = str(payload_value(payload, "cwd", "working_directory", default=os.getcwd()))
+    explicit_cwd = (
+        tool_input.get("workdir")
+        or tool_input.get("cwd")
+        or tool_input.get("working_directory")
+    )
+    cwd = str(
+        explicit_cwd
+        or payload_value(payload, "cwd", "working_directory", default=os.getcwd())
+    )
     return tool_name, tool_input, cwd
 
 
@@ -132,8 +218,8 @@ def evaluate(payload: dict[str, Any]) -> tuple[bool, str]:
         return True, "Document-driven development is not initialized for this repository."
 
     try:
-        paths = tool_paths(tool_input)
-        if tool_name.lower() in {"bash", "shell", "exec_command", "run_command"}:
+        paths: list[str] = []
+        if tool_name.lower() in SHELL_TOOL_NAMES:
             command = str(
                 tool_input.get("command")
                 or tool_input.get("cmd")
@@ -148,6 +234,8 @@ def evaluate(payload: dict[str, Any]) -> tuple[bool, str]:
                     return False, (
                         "Potentially mutating shell command blocked because its target cannot be verified and no valid document context lock exists."
                     )
+        else:
+            paths.extend(tool_paths(tool_name, tool_input))
         if not paths:
             return True, "No implementation write target was detected."
         for path in dict.fromkeys(paths):

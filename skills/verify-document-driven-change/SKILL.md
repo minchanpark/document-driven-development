@@ -42,7 +42,9 @@ contract, migration, policy, or deployment checks required by the artifacts.
 
 ## 3. Run tests and operational checks
 
-Run focused tests first, then the full relevant suite. Include lint, type checks,
+Run focused affected tests first, then the full relevant suite once for the
+final integration state. Reuse immutable successful evidence only when its input
+hashes, toolchain, command, and environment fingerprint are unchanged. Include lint, type checks,
 builds, migration validation, rollback exercises, security checks, or deployment
 validation only when relevant to the locked decisions. Record commands and
 results accurately.
@@ -70,3 +72,5 @@ required check is skipped or failing.
 - A changed approved document always requires re-approval and a new lock.
 - Hook success alone is not final verification; CI is the merge gate.
 - An unfinished orchestration run is a failed final gate.
+- Environment-unavailable evidence is not a product failure, but a required
+  pending external gate still blocks final completion.

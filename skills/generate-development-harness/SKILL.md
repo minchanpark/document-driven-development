@@ -80,6 +80,10 @@ path must pass. Test each platform adapter with a representative native payload:
 
 Also verify that Codex and Claude Code receive `SessionStart` context while
 Antigravity receives equivalent ephemeral context from `PreInvocation`.
+Verify that read-only shell commands such as `sed -n`, stderr redirection to
+`/dev/null`, and read tools carrying a `path` field are not classified as
+writes. Verify separately that `sed -i`, file redirection, and native write
+tools remain guarded.
 
 If CI is not GitHub, provide the exact portable gate command for the user's CI:
 
