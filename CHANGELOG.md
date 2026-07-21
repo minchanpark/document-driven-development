@@ -1,6 +1,22 @@
 # Changelog
 
-## 0.3.0  2026-07-22
+## 0.4.0 - 2026-07-22
+
+- Replaced growing inline run histories with bounded snapshots and append-only
+  event logs, including full lifecycle replay at approval and final audit gates.
+- Sharded traceability by task and requirement with a legacy-compatible export.
+- Added persistent short-lived validation leases for adjacent code-only edits,
+  with document/state invalidation and authoritative final hash verification.
+- Added structured verification preflight, external-environment states,
+  impact/input/environment fingerprints, deterministic evidence reuse, manual
+  attestation, and release-phase blocking.
+- Added completed-run supersession provenance and cross-run evidence reuse.
+- Added registered Git worktree lifecycle tracking and conservative automatic
+  cleanup for clean, integrated, reachable or content-equivalent worktrees.
+- Updated provider prompts and skills to start from compact context packs and
+  avoid resending unchanged full documents or successful logs.
+
+## 0.3.0 - 2026-07-22
 
 - Added atomic, hash-explicit multi-artifact approval with identical-hash reuse.
 - Added task and package context packs containing compact requirement slices

@@ -12,6 +12,17 @@ Context Lock. It must contain:
   "depends_on": [],
   "allowed_paths": ["src/server/**", "tests/server/**"],
   "verification_commands": ["pytest tests/server"],
+  "verification_specs": [
+    {
+      "id": "server-unit",
+      "type": "unit",
+      "command": "pytest tests/server",
+      "requires": [],
+      "input_paths": ["src/server/**", "tests/server/**"],
+      "blocking_phase": "package",
+      "cache_policy": "input-hash"
+    }
+  ],
   "status": "approved-for-implementation"
 }
 ```
@@ -48,3 +59,14 @@ It never replaces the whole central run.
 Central code integration uses a Package Lock with `phase: integration`. It keeps
 the package's same path ownership while the Main Orchestrator merges the branch.
 The package cannot become `integrated` without this lock.
+
+Structured verification specs are optional for legacy compatibility and
+required when a gate needs mechanical phase blocking, environment preflight, or
+evidence reuse. `unavailable` is pending evidence rather than rejection, but it
+still blocks the declared phase. Reuse requires an identical approved-document,
+package-contract, input, command, and environment fingerprint.
+
+New runs keep only lifecycle accumulators in `run.json`; complete events live in
+`events.jsonl`. Routine checks use the bounded snapshot. Plan approval and final
+verification replay the append-only log. A completed predecessor may be named by
+`start-run --supersedes`, but provenance never bypasses the package contract.

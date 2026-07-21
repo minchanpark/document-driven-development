@@ -62,11 +62,18 @@ docs/document-manifest.json
 ├── context-pack.json
 ├── package-lock.json
 ├── traceability.json
+├── trace/<task-id>/<requirement-id>.json
+├── evidence/<gate-id>/<fingerprint>.json
+├── worktrees.json
 ├── runs/
 │   └── <task-id>/
-│       └── run.json
+│       ├── run.json
+│       ├── events.jsonl
+│       └── evidence/
+├── .cache/validation-lease.json  # untracked
 └── bin/
     ├── docflow.py
+    ├── docflow_store.py
     ├── pre_tool_guard.py
     ├── session_context.py
     ├── codex_pre_tool.py
@@ -141,9 +148,22 @@ slice로 분리한다. `prepare`는 전체 문서 SHA-256을 잠근 뒤 requirem
 evidence가 없으면 최종 integration은 계속 차단한다. 패키지 단계에서는
 affected test를 실행하고 전체 suite는 최종 결합 상태에서 한 번 실행한다.
 
-장기적으로 canonical event는 append-only, trace는 requirement 단위 shard로
-전환하고 재생성 가능한 index를 사용한다. 목표 복잡도는 전체 개발 O(1)이
-아니라, 일반 guard·상태 전환·evidence 조회의 amortized O(1)이다.
+canonical event는 append-only log로 기록하고 `run.json`은 bounded snapshot만
+유지한다. trace는 requirement 단위 shard로 저장하고 단일 파일 소비자를 위해
+legacy-compatible export를 제공한다. 일반 guard는 짧은 validation lease를
+재사용하며, final gate는 전체 문서 hash와 event history를 다시 검증한다.
+
+검증은 package의 structured spec에 따라 input·document·command·environment
+fingerprint로 식별한다. 동일 fingerprint의 성공 evidence만 재사용하고,
+Docker·browser·hosted 환경 부재는 `unavailable`로 기록해 product failure와
+분리한다. 필수 외부 evidence가 없으면 해당 package·integration·release gate는
+계속 차단한다. 완료된 run은 supersession provenance를 남길 수 있고, clean하며
+통합 증명이 있는 secondary Git worktree만 자동 정리한다.
+
+목표 복잡도는 전체 개발 O(1)이 아니라, 일반 guard·상태 전환·trace update·
+evidence lookup의 amortized O(1)이다. 승인 시 ownership pair 검증, final event
+replay, affected input hashing, 전체 test는 의도적으로 실제 검증량에 비례한다.
+세부 invalidation 및 호환성 규칙은 `docs/PERFORMANCE_ARCHITECTURE.md`에 둔다.
 
 ### CI
 

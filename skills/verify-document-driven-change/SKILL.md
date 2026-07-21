@@ -14,6 +14,7 @@ Run:
 ```text
 python3 .document-driven/bin/docflow.py validate --root <repo>
 python3 .document-driven/bin/docflow.py check-lock --root <repo>
+python3 .document-driven/bin/docflow.py check-run --root <repo> --audit
 python3 .document-driven/bin/docflow.py verify --root <repo>
 ```
 
@@ -23,8 +24,9 @@ test paths, and complete traceability for the active task.
 
 When `.document-driven/runs/<task-id>/run.json` exists, also require a valid,
 `completed` run, no active Package Lock, independent review evidence, and every
-package in `integrated` status. A direct single-agent task remains valid without a
-run file.
+package in `integrated` status. `verify` replays append-only lifecycle history;
+the routine snapshot or a validation lease is not sufficient final proof. A
+direct single-agent task remains valid without a run file.
 
 ## 2. Review the actual change
 

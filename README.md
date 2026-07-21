@@ -60,8 +60,12 @@ Run `/reload-plugins` in an active Claude Code session, or start a new session.
 - `.document-driven/context-pack.json`: compact requirement slices bound to the
   full locked document hashes
 - `.document-driven/package-lock.json`: active package ownership in one worktree
-- `.document-driven/runs/<task-id>/run.json`: locked plan, packages, review, and integration state
-- `.document-driven/traceability.json`: requirement-to-document/code/test links
+- `.document-driven/runs/<task-id>/run.json`: bounded current run/package snapshot
+- `.document-driven/runs/<task-id>/events.jsonl`: append-only lifecycle audit log
+- `.document-driven/trace/<task-id>/<requirement-id>.json`: sharded requirement links
+- `.document-driven/traceability.json`: legacy-compatible trace index and fallback
+- `.document-driven/evidence/`: deterministic reusable verification evidence
+- `.document-driven/worktrees.json`: active isolated-worktree lifecycle registry
 
 Run `python3 scripts/docflow.py --help` for deterministic commands. The plugin
 contains native plugin manifests and hook adapters for all three platforms. The
@@ -88,12 +92,24 @@ The harness separates integrity from prompt size:
 - identical approval hashes are reused and multi-document approval is atomic;
 - read-only shell commands and read tools are not sent through write guards;
 - lock and run validation results are reused within one guard invocation;
-- trace verification indexes entries once instead of rescanning them per
-  requirement.
+- a short persistent validation lease avoids re-hashing immutable documents on
+  adjacent code-only writes;
+- run events append without growing `run.json`, while final verification replays
+  the complete audit log;
+- one trace update writes only its requirement shard;
+- structured verification gates distinguish unavailable environments from
+  product failures and reuse identical input/environment evidence;
+- completed runs safely garbage collect clean integrated Git worktrees.
 
 Use `approve-bundle` with explicit `artifact=sha256` values to record a user
 approval batch. Use `context-pack --package <id>` to regenerate or inspect a
 package-specific compact context.
+
+Use `preflight` and `verify-package` for structured evidence,
+`check-run --audit` to replay a run, `trace-export` for legacy trace consumers,
+and `worktree-gc` to inspect cleanup eligibility. See
+[`docs/PERFORMANCE_ARCHITECTURE.md`](docs/PERFORMANCE_ARCHITECTURE.md) for the
+complexity model, invalidation rules, compatibility behavior, and safety gates.
 
 ## Attribution
 

@@ -30,6 +30,11 @@ Read it completely, verify the package is `implementing`, and edit only its
 orchestrated run exists without an active package, do not write implementation
 files; return to `orchestrate-documented-change`.
 
+When `verification_specs` are present, preflight prerequisites once and execute
+the affected gates through `verify-package`. Do not repeatedly run an unchanged
+unavailable external gate or resend a successful log. A reusable pass must come
+from the harness fingerprint, not memory.
+
 ```text
 python3 .document-driven/bin/docflow.py check-package-lock --root <repo>
 ```

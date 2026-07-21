@@ -139,7 +139,7 @@ function roleEnvelope(role, access, prompt, packageLock) {
   const constraint = access === "read-only"
     ? "Do not modify files. Analyze the approved document boundary and return evidence only."
     : `Modify only package ${packageLock.package_id} paths: ${packageLock.allowed_paths.join(", ")}. Run its declared verification commands and report exact evidence.`;
-  return `[DOCUMENT-DRIVEN DEVELOPMENT TASK]\nROLE: ${role}\nACCESS: ${access}\n${constraint}\nRead docs/document-manifest.json and every file in .document-driven/context-lock.json before acting. A design conflict stops implementation and returns to document approval.\n\n${prompt.trim()}\n\n[RETURN]\nSeparate conclusion or changed files, document/requirement evidence, verification results, and unresolved issues.`;
+  return `[DOCUMENT-DRIVEN DEVELOPMENT TASK]\nROLE: ${role}\nACCESS: ${access}\n${constraint}\nStart with the compact context pack named by .document-driven/package-lock.json (or .document-driven/context-pack.json for a task). Open a cited full approved document only when the slice is ambiguous or a cross-cutting constraint is required. The context lock hashes remain authoritative; do not preload every locked document. A design conflict stops implementation and returns to document approval.\n\n${prompt.trim()}\n\n[RETURN]\nSeparate conclusion or changed files, document/requirement evidence, verification results, and unresolved issues.`;
 }
 
 async function loadPackageLock(cwd) {

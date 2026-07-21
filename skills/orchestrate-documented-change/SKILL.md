@@ -54,6 +54,12 @@ criterion or command. Prefer vertical boundaries that can be implemented and
 reviewed independently. Shared interfaces should be settled in an earlier
 dependency package rather than edited concurrently.
 
+For cacheable or environment-dependent checks, add a structured
+`--verification-spec` with a stable id, type, command, prerequisites, input
+paths, blocking phase, and cache policy. Plain commands remain compatible, but
+only structured gates create reusable evidence and mechanically block their
+declared phase.
+
 Run `check-run`, then `approve-run --approved-by <user>` only after explicit
 approval. The run state belongs under `.document-driven/runs/<task-id>/`; it is
 not a long-lived artifact in `docs/document-manifest.json`.
@@ -63,7 +69,8 @@ not a long-lived artifact in `docs/document-manifest.json`.
 Keep the original worktree's run as the canonical central state. Create one
 isolated worktree or equivalent isolated copy per ready package from the approved
 run snapshot. Each worker must contain the identical Task Context Lock and its own
-copy of the run, then activate exactly one package in that workspace:
+copy of both `run.json` and `events.jsonl`, then activate exactly one package in
+that workspace:
 
 ```text
 python3 .document-driven/bin/docflow.py activate-package --root <worktree> \
@@ -75,11 +82,17 @@ with `--role coder --access workspace-write`. Every coder follows
 `implement-from-documents`, edits only owned paths, runs declared verification,
 and reports exact evidence. Packages with unmet dependencies do not start.
 
-Preflight declared verification prerequisites before implementation. Separate
+Run `docflow.py preflight --package <id>` before implementation. Separate
 an unavailable Docker, browser, credential, or hosted environment from a product
 failure. Record unavailable external evidence once and keep it pending for the
 integration gate; do not spend fix iterations rerunning an unchanged missing
 environment.
+
+Run affected structured checks with `verify-package --package <id> --execute`.
+Supply non-secret environment identity through `--environment NAME=VALUE` for
+an environment-scoped cache; values are hashed in evidence. Reuse is valid only
+when the complete document, package, input, command, and environment fingerprint
+matches.
 
 When implementation is complete, transition the package to `implemented` with
 test evidence. A design conflict stops the worker immediately and returns to the
@@ -125,10 +138,15 @@ package `integrated` only with evidence; the
 integration lock is then released. If integration reveals a document conflict,
 stop and re-approve the design before continuing.
 
+Register secondary Git worktrees when they are not imported automatically.
 After every package is integrated, run `complete-run`, then use
 `verify-document-driven-change`. CI must pass `docflow.py verify --ci` before
 merge. Report document/hash state, package results, reviewers, tests, traceability,
 and remaining risks.
+
+Run completion automatically removes only registered, clean, integrated
+secondary worktrees that Git proves reachable or content-equivalent. Use
+`worktree-gc` without `--apply` to inspect eligibility when cleanup is uncertain.
 
 ## Non-negotiable gates
 
