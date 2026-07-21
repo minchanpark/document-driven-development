@@ -59,13 +59,21 @@ docs/document-manifest.json
 ├── policy.json
 ├── orchestration.json
 ├── context-lock.json
+├── context-pack.json
 ├── package-lock.json
 ├── traceability.json
+├── trace/<task-id>/<requirement-id>.json
+├── evidence/<gate-id>/<fingerprint>.json
+├── worktrees.json
 ├── runs/
 │   └── <task-id>/
-│       └── run.json
+│       ├── run.json
+│       ├── events.jsonl
+│       └── evidence/
+├── .cache/validation-lease.json  # untracked
 └── bin/
     ├── docflow.py
+    ├── docflow_store.py
     ├── pre_tool_guard.py
     ├── session_context.py
     ├── codex_pre_tool.py
@@ -118,6 +126,50 @@ Codex와 Claude Code는 snake_case 훅 입력과 `hookSpecificOutput` 차단 응
 사용하므로 별도 어댑터가 정규화한다. 사용자가 비활성화한 Hook이나 플랫폼이
 노출하지 않는 쓰기까지 완전히 통제할 수는 없으므로 Hook은 로컬 가드레일이고,
 최종 강제는 CI가 맡는다.
+
+### 성능 원칙
+
+승인과 무결성의 단위는 전체 문서지만, 에이전트 입력 단위는 requirement
+slice로 분리한다. `prepare`는 전체 문서 SHA-256을 잠근 뒤 requirement id
+주변의 제한된 발췌와 원문 위치·해시를 `context-pack.json`에 기록한다.
+구현자와 reviewer는 pack을 먼저 읽고, 모호성이나 cross-cutting invariant가
+있을 때만 전체 문서를 연다.
+
+일반 쓰기 guard는 한 호출에서 manifest, Task Lock, run, Package Lock 검증
+결과를 재사용한다. 읽기 명령과 `/dev/null` 리다이렉션은 write로 오인하지
+않고, 실제 in-place 편집·출력 파일·native write 도구만 경로 정책에 보낸다.
+
+여러 reviewed artifact를 명시적 hash와 함께 한 번에 승인할 수 있으며, 어느
+하나라도 hash·상태·dependency가 맞지 않으면 전체 bundle을 거절한다. 이미
+승인된 동일 hash는 manifest를 다시 쓰지 않는다.
+
+패키지는 구현 전에 acceptance criteria와 evidence 종류를 포함한다. 환경이
+없는 외부 gate는 제품 실패와 구분하여 한 번만 pending으로 기록하되, 필수
+evidence가 없으면 최종 integration은 계속 차단한다. 패키지 단계에서는
+affected test를 실행하고 전체 suite는 최종 결합 상태에서 한 번 실행한다.
+
+canonical event는 append-only log로 기록하고 `run.json`은 bounded snapshot만
+유지한다. trace는 requirement 단위 shard로 저장하고 단일 파일 소비자를 위해
+legacy-compatible export를 제공한다. 일반 guard는 짧은 validation lease를
+재사용하며, final gate는 전체 문서 hash와 event history를 다시 검증한다.
+
+검증은 package의 structured spec에 따라 input·document·command·environment
+fingerprint로 식별한다. 동일 fingerprint의 성공 evidence만 재사용하고,
+Docker·browser·hosted 환경 부재는 `unavailable`로 기록해 product failure와
+분리한다. 필수 외부 evidence가 없으면 해당 package·integration·release gate는
+계속 차단한다. 완료된 run은 supersession provenance를 남길 수 있고, clean하며
+통합 증명이 있는 secondary Git worktree만 자동 정리한다.
+
+목표 복잡도는 전체 개발 O(1)이 아니라, 일반 guard·상태 전환·trace update·
+evidence lookup의 amortized O(1)이다. 승인 시 ownership pair 검증, final event
+replay, affected input hashing, 전체 test는 의도적으로 실제 검증량에 비례한다.
+세부 invalidation 및 호환성 규칙은 `docs/PERFORMANCE_ARCHITECTURE.md`에 둔다.
+
+구현 단계에는 Ponytail의 최소 정답 판단 순서만 압축해 이식한다. 영향 흐름을
+이해한 뒤 기존 동작, 저장소 코드, 표준 라이브러리·native platform, 이미 설치된
+dependency 순으로 재사용하고 마지막에만 최소 diff를 작성한다. 별도 상시 hook과
+전체 규칙 본문은 추가하지 않으며 provider 정책은 512 bytes 이하로 제한한다.
+이 원칙은 승인 요구사항·보안·접근성·검증·추적성을 줄이는 근거가 될 수 없다.
 
 ### CI
 

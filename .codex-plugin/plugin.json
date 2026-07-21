@@ -1,6 +1,6 @@
 {
   "name": "document-driven-development",
-  "version": "0.2.0+codex.20260719204949",
+  "version": "0.4.1+codex.20260722075024",
   "description": "Turn a PRD into approved project documents, then gate single or orchestrated implementation on task and package locks.",
   "author": {
     "name": "Park Minchan"
@@ -16,6 +16,7 @@
       "Dynamic document graph discovery",
       "Conversational document approval",
       "Document-gated implementation",
+      "Hash-bound compact context packs",
       "Main-orchestrated package implementation",
       "Independent cross-review and green integration",
       "Traceability and CI verification"

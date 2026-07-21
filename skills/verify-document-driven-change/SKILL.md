@@ -14,6 +14,7 @@ Run:
 ```text
 python3 .document-driven/bin/docflow.py validate --root <repo>
 python3 .document-driven/bin/docflow.py check-lock --root <repo>
+python3 .document-driven/bin/docflow.py check-run --root <repo> --audit
 python3 .document-driven/bin/docflow.py verify --root <repo>
 ```
 
@@ -23,8 +24,9 @@ test paths, and complete traceability for the active task.
 
 When `.document-driven/runs/<task-id>/run.json` exists, also require a valid,
 `completed` run, no active Package Lock, independent review evidence, and every
-package in `integrated` status. A direct single-agent task remains valid without a
-run file.
+package in `integrated` status. `verify` replays append-only lifecycle history;
+the routine snapshot or a validation lease is not sufficient final proof. A
+direct single-agent task remains valid without a run file.
 
 ## 2. Review the actual change
 
@@ -36,13 +38,18 @@ Inspect the complete diff and map every changed implementation path to:
 - an executed test or approved verification
 
 Flag unrelated changes, undocumented behavior, stale generated output, and path
-rules that are too broad or too weak. Generic tooling cannot prove semantic API,
+rules that are too broad or too weak. Also flag unjustified new dependencies,
+abstractions, configuration, or files. Require the smallest correct implementation
+without reducing any locked validation, security, accessibility, test,
+traceability, or evidence obligation. Generic tooling cannot prove semantic API,
 schema, security, or infrastructure consistency; run the repository-specific
 contract, migration, policy, or deployment checks required by the artifacts.
 
 ## 3. Run tests and operational checks
 
-Run focused tests first, then the full relevant suite. Include lint, type checks,
+Run focused affected tests first, then the full relevant suite once for the
+final integration state. Reuse immutable successful evidence only when its input
+hashes, toolchain, command, and environment fingerprint are unchanged. Include lint, type checks,
 builds, migration validation, rollback exercises, security checks, or deployment
 validation only when relevant to the locked decisions. Record commands and
 results accurately.
@@ -70,3 +77,5 @@ required check is skipped or failing.
 - A changed approved document always requires re-approval and a new lock.
 - Hook success alone is not final verification; CI is the merge gate.
 - An unfinished orchestration run is a failed final gate.
+- Environment-unavailable evidence is not a product failure, but a required
+  pending external gate still blocks final completion.

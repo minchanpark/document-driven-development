@@ -81,6 +81,20 @@ python3 <plugin-root>/scripts/docflow.py approve --root <repo> \
 Never choose an approval identity without the user's wording. Never treat a
 positive reaction to an outline as approval of the written file.
 
+When the user explicitly approves several reviewed artifacts and names their
+hashes, record them atomically instead of repeating one command per artifact:
+
+```text
+python3 <plugin-root>/scripts/docflow.py approve-bundle --root <repo> \
+  --approved-by <user-provided-identity> \
+  --approval <artifact-id>=<sha256> \
+  --approval <artifact-id>=<sha256>
+```
+
+The bundle may include dependencies together. Reuse an already approved
+identical hash without rewriting the manifest. Reject the entire bundle when any
+hash, state, identity, or dependency is invalid.
+
 ## 6. Continue in graph order
 
 Report the artifact state and the next unapproved artifact whose dependencies
@@ -89,7 +103,8 @@ artifact is approved, hand off to `generate-development-harness`.
 
 ## Non-negotiable gates
 
-- Exactly one artifact per authoring cycle.
+- Exactly one artifact per authoring and review cycle; explicit approvals may be
+  recorded as one atomic multi-artifact bundle.
 - One question at a time.
 - No product code, migration, infrastructure change, or implementation scaffold.
 - Explicit review of the written artifact before approval.

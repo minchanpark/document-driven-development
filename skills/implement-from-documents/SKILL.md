@@ -14,19 +14,37 @@ Run:
 
 ```text
 python3 .document-driven/bin/docflow.py check-lock --root <repo>
+python3 .document-driven/bin/docflow.py check-context-pack --root <repo>
 ```
 
-Read `.document-driven/context-lock.json` and every listed file completely. If
-the lock is missing or invalid, stop and use `prepare-documented-change`.
+Read `.document-driven/context-lock.json` and the referenced
+`.document-driven/context-pack.json`. Start from its requirement slices. Open
+a full locked document only when a cited slice is insufficient or a
+cross-cutting constraint applies. If the lock is missing or invalid, stop and
+use `prepare-documented-change`.
 
 If `.document-driven/package-lock.json` exists, this is a package worker run.
 Read it completely, verify the package is `implementing`, and edit only its
-`allowed_paths`. Run every declared `verification_command`. If an unfinished
+`allowed_paths`. Read its `context_pack`, satisfy every
+`acceptance_criteria`, and run every declared `verification_command`. If an unfinished
 orchestrated run exists without an active package, do not write implementation
 files; return to `orchestrate-documented-change`.
 
+When `verification_specs` are present, preflight prerequisites once and execute
+the affected gates through `verify-package`. Do not repeatedly run an unchanged
+unavailable external gate or resend a successful log. A reusable pass must come
+from the harness fingerprint, not memory.
+
 ```text
 python3 .document-driven/bin/docflow.py check-package-lock --root <repo>
+```
+
+For a package worker, validate its narrower context directly when diagnosing
+context drift:
+
+```text
+python3 .document-driven/bin/docflow.py check-context-pack --root <repo> \
+  --package <package-id>
 ```
 
 ## 2. Map work to requirements
@@ -36,6 +54,14 @@ locked requirement id and the artifact constraints it satisfies. Avoid unrelated
 refactoring. Follow the repository's existing conventions unless an approved
 artifact explicitly changes them.
 
+After understanding the affected flow, minimize the implementation in this
+order: add no code when the locked behavior already exists; reuse repository
+code; use the standard library or native platform; use an already-installed
+dependency; then write the smallest correct diff. Do not add speculative
+abstractions, dependencies, configuration, or files. This never permits omitting
+locked requirements, validation, security, accessibility, error handling, tests,
+traceability, or evidence. A conflict returns to document approval.
+
 ## 3. Use test-first implementation
 
 For behavior changes, write or update a test that fails for the intended reason,
@@ -44,8 +70,9 @@ remain green. For changes where a conventional automated test is not applicable,
 define the approved verification before editing and record its artifact or test
 path in traceability.
 
-Re-run `check-lock` before each materially different implementation area and
-after any document-related operation.
+Re-run `check-lock` after any document, manifest, policy, run-contract, or lock
+operation. Rely on the write guard for unchanged code-only steps; do not
+re-hash the same immutable context between adjacent edits.
 
 ## 4. Stop on design drift
 
@@ -83,7 +110,8 @@ deployment, or operational verification.
 ## Non-negotiable gates
 
 - No valid lock, no implementation.
-- Read every locked file; do not rely on a previous summary.
+- Read the hash-bound requirement pack first and open authoritative full
+  documents whenever the slices are insufficient.
 - Code never silently outranks an approved document.
 - Design changes require document revision, explicit re-approval, and a new lock.
 - Every locked requirement links to actual code and tests or approved verification.

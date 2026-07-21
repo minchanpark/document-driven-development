@@ -34,7 +34,8 @@ Run `/reload-plugins` in an active Claude Code session, or start a new session.
 
 1. `discover-document-graph` reads the PRD and repository, interviews the user,
    compares approaches, and proposes a minimal artifact graph.
-2. `author-project-document` drafts and approves one selected artifact at a time.
+2. `author-project-document` drafts and reviews one selected artifact at a
+   time, then records one or more explicitly approved hashes atomically.
 3. `generate-development-harness` installs repository instructions, hooks,
    deterministic validators, context locks, traceability, and optional GitHub CI.
 4. `prepare-documented-change` selects approved relevant artifacts and hashes
@@ -56,9 +57,15 @@ Run `/reload-plugins` in an active Claude Code session, or start a new session.
 - `.document-driven/policy.json`: repository-specific enforcement rules
 - `.document-driven/orchestration.json`: mode, review gates, loop limits, and non-secret provider routing
 - `.document-driven/context-lock.json`: task, requirement, and document hashes
+- `.document-driven/context-pack.json`: compact requirement slices bound to the
+  full locked document hashes
 - `.document-driven/package-lock.json`: active package ownership in one worktree
-- `.document-driven/runs/<task-id>/run.json`: locked plan, packages, review, and integration state
-- `.document-driven/traceability.json`: requirement-to-document/code/test links
+- `.document-driven/runs/<task-id>/run.json`: bounded current run/package snapshot
+- `.document-driven/runs/<task-id>/events.jsonl`: append-only lifecycle audit log
+- `.document-driven/trace/<task-id>/<requirement-id>.json`: sharded requirement links
+- `.document-driven/traceability.json`: legacy-compatible trace index and fallback
+- `.document-driven/evidence/`: deterministic reusable verification evidence
+- `.document-driven/worktrees.json`: active isolated-worktree lifecycle registry
 
 Run `python3 scripts/docflow.py --help` for deterministic commands. The plugin
 contains native plugin manifests and hook adapters for all three platforms. The
@@ -74,9 +81,43 @@ Optional external provider adapters are available through
 `model-council`; host-native agents are the default and the DDD workflow remains
 fully functional without any external CLI.
 
+## Fast path without weaker gates
+
+The harness separates integrity from prompt size:
+
+- full approved documents remain SHA-256 locked;
+- implementers and reviewers start from generated requirement slices and open
+  full documents only for ambiguity or cross-cutting constraints;
+- package contracts can carry explicit acceptance criteria before coding;
+- identical approval hashes are reused and multi-document approval is atomic;
+- read-only shell commands and read tools are not sent through write guards;
+- lock and run validation results are reused within one guard invocation;
+- a short persistent validation lease avoids re-hashing immutable documents on
+  adjacent code-only writes;
+- run events append without growing `run.json`, while final verification replays
+  the complete audit log;
+- one trace update writes only its requirement shard;
+- structured verification gates distinguish unavailable environments from
+  product failures and reuse identical input/environment evidence;
+- completed runs safely garbage collect clean integrated Git worktrees.
+- a compact Ponytail-derived minimum-correct policy prefers existing code and
+  primitives without adding a second always-on hook; its provider text has a
+  512-byte budget and cannot weaken locked obligations.
+
+Use `approve-bundle` with explicit `artifact=sha256` values to record a user
+approval batch. Use `context-pack --package <id>` to regenerate or inspect a
+package-specific compact context.
+
+Use `preflight` and `verify-package` for structured evidence,
+`check-run --audit` to replay a run, `trace-export` for legacy trace consumers,
+and `worktree-gc` to inspect cleanup eligibility. See
+[`docs/PERFORMANCE_ARCHITECTURE.md`](docs/PERFORMANCE_ARCHITECTURE.md) for the
+complexity model, invalidation rules, compatibility behavior, and safety gates.
+
 ## Attribution
 
 The conversational design principles are adapted from Superpowers. The
 locked-plan, package decomposition, cross-review, and bounded escalation ideas
-are independently adapted from the former model-council build flow. See `NOTICE`
-and `LICENSE` for attribution and license terms.
+are independently adapted from the former model-council build flow. The compact
+minimum-correct implementation ladder is adapted from Ponytail without a runtime
+dependency. See `NOTICE` and `LICENSE` for attribution and license terms.

@@ -52,9 +52,11 @@ The installer must preserve unrelated content and merge managed rules into:
 - `.claude/settings.json` for Claude Code
 - `.agents/hooks.json` for Antigravity
 - `.document-driven/bin/`
+- `.document-driven/bin/docflow_store.py`
 - `.document-driven/policy.json`
 - `.document-driven/orchestration.json`
 - `.document-driven/traceability.json`
+- `.gitignore` for the untracked validation-lease cache
 - optional `.github/workflows/document-driven-development.yml`
 
 Edit only `.document-driven/policy.json` after installation to apply the approved
@@ -73,6 +75,11 @@ python3 .document-driven/bin/docflow.py guard-edit --root <repo> --path <one doc
 Before a task lock exists, the implementation path must fail and the document
 path must pass. Test each platform adapter with a representative native payload:
 
+After preparing a test lock, make two adjacent allowed code-path checks. The
+first may issue a validation lease; `check-lease` must pass and the second must
+reuse it. A document-path write must invalidate the lease. Final `check-lock`
+must still detect content drift independently of the lease.
+
 - Codex: snake-case `PreToolUse` input and `Bash|apply_patch|Edit|Write`
 - Claude Code: snake-case `PreToolUse` input and `Bash|Edit|Write`
 - Antigravity: camel-case `toolCall` input and
@@ -80,6 +87,10 @@ path must pass. Test each platform adapter with a representative native payload:
 
 Also verify that Codex and Claude Code receive `SessionStart` context while
 Antigravity receives equivalent ephemeral context from `PreInvocation`.
+Verify that read-only shell commands such as `sed -n`, stderr redirection to
+`/dev/null`, and read tools carrying a `path` field are not classified as
+writes. Verify separately that `sed -i`, file redirection, and native write
+tools remain guarded.
 
 If CI is not GitHub, provide the exact portable gate command for the user's CI:
 

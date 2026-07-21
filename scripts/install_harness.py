@@ -45,7 +45,9 @@ def load_optional_json(path: Path) -> dict[str, Any]:
     try:
         value = json.loads(path.read_text(encoding="utf-8"))
     except json.JSONDecodeError as exc:
-        raise docflow.DocflowError(f"Cannot merge invalid JSON file {path}: {exc}") from exc
+        raise docflow.DocflowError(
+            f"Cannot merge invalid JSON file {path}: {exc}"
+        ) from exc
     if not isinstance(value, dict):
         raise docflow.DocflowError(f"Cannot merge non-object JSON file: {path}")
     return value
@@ -53,7 +55,9 @@ def load_optional_json(path: Path) -> dict[str, Any]:
 
 def merge_managed_block(path: Path, block: str) -> str:
     current = path.read_text(encoding="utf-8") if path.exists() else ""
-    pattern = re.compile(re.escape(BLOCK_START) + r".*?" + re.escape(BLOCK_END), re.DOTALL)
+    pattern = re.compile(
+        re.escape(BLOCK_START) + r".*?" + re.escape(BLOCK_END), re.DOTALL
+    )
     if pattern.search(current):
         updated = pattern.sub(block.strip(), current)
         result = "updated"
@@ -178,7 +182,9 @@ def merge_event_hooks(path: Path, additions: dict[str, list[dict[str, Any]]]) ->
     for event, event_additions in additions.items():
         current = hooks.setdefault(event, [])
         if not isinstance(current, list):
-            raise docflow.DocflowError(f"Existing hooks.{event} is not an array: {path}")
+            raise docflow.DocflowError(
+                f"Existing hooks.{event} is not an array: {path}"
+            )
         hooks[event] = [group for group in current if not managed_hook_group(group)]
         hooks[event].extend(event_additions)
     after = json.dumps(data, ensure_ascii=False, sort_keys=True)
@@ -215,6 +221,18 @@ def write_if_absent(path: Path, content: bytes) -> str:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(content)
     return "created"
+
+
+def merge_gitignore(path: Path) -> str:
+    existed = path.exists()
+    current = path.read_text(encoding="utf-8") if existed else ""
+    managed = ".document-driven/.cache/"
+    lines = current.splitlines()
+    if managed in lines:
+        return "unchanged"
+    separator = "\n" if current and not current.endswith("\n") else ""
+    path.write_text(current + separator + managed + "\n", encoding="utf-8")
+    return "updated" if existed else "created"
 
 
 def merge_policy(path: Path) -> str:
@@ -254,6 +272,7 @@ def merge_orchestration(path: Path) -> str:
     config = load_optional_json(path)
     before = json.dumps(config, ensure_ascii=False, sort_keys=True)
     defaults = docflow.default_orchestration()
+
     def apply_defaults(target: dict[str, Any], source: dict[str, Any]) -> None:
         for key, value in source.items():
             if key not in target:
@@ -278,8 +297,12 @@ def install(root: Path, ci: str) -> list[tuple[str, str]]:
         if artifact.get("status") != "superseded"
     ]
     if not active:
-        raise docflow.DocflowError("The approved document graph has no active artifacts")
-    unapproved = [artifact["id"] for artifact in active if artifact.get("status") != "approved"]
+        raise docflow.DocflowError(
+            "The approved document graph has no active artifacts"
+        )
+    unapproved = [
+        artifact["id"] for artifact in active if artifact.get("status") != "approved"
+    ]
     if unapproved:
         raise docflow.DocflowError(
             "Approve every active artifact before installing the implementation harness: "
@@ -290,6 +313,7 @@ def install(root: Path, ci: str) -> list[tuple[str, str]]:
     bin_dir = root / docflow.STATE_REL / "bin"
     for name in (
         "docflow.py",
+        "docflow_store.py",
         "pre_tool_guard.py",
         "session_context.py",
         "codex_pre_tool.py",
@@ -316,9 +340,12 @@ def install(root: Path, ci: str) -> list[tuple[str, str]]:
     trace_path = root / docflow.TRACE_REL
     trace_status = write_if_absent(
         trace_path,
-        docflow.json_bytes({"schema_version": "1.0", "entries": []}),
+        docflow.json_bytes(
+            {"schema_version": "1.0", "storage_mode": "sharded", "entries": []}
+        ),
     )
     results.append((docflow.TRACE_REL.as_posix(), trace_status))
+    results.append((".gitignore", merge_gitignore(root / ".gitignore")))
 
     rules = (plugin_root / "assets/harness/AGENT_RULES.md").read_text(encoding="utf-8")
     for name in ("AGENTS.md", "CLAUDE.md"):
@@ -347,7 +374,9 @@ def install(root: Path, ci: str) -> list[tuple[str, str]]:
     if wants_github:
         workflow = root / ".github/workflows/document-driven-development.yml"
         content = (plugin_root / "assets/harness/github-workflow.yml").read_bytes()
-        results.append((workflow.relative_to(root).as_posix(), write_if_absent(workflow, content)))
+        results.append(
+            (workflow.relative_to(root).as_posix(), write_if_absent(workflow, content))
+        )
     return results
 
 
@@ -373,7 +402,9 @@ def main() -> int:
         return 1
     for path, status in results:
         print(f"{status:9} {path}")
-    print("Harness installed. Review .document-driven/policy.json path_rules before implementation.")
+    print(
+        "Harness installed. Review .document-driven/policy.json path_rules before implementation."
+    )
     return 0
 
 

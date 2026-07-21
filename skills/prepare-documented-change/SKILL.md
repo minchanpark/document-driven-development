@@ -44,13 +44,19 @@ python3 .document-driven/bin/docflow.py prepare --root <repo> \
   --artifact <explicit-artifact-id>
 ```
 
-Then run `check-lock`. The lock must contain hashes for the manifest, PRD, and
-selected approved artifacts.
+Then run `check-lock` and `check-context-pack`. The lock must contain hashes
+for the manifest, PRD, and selected approved artifacts. `prepare` also writes
+`.document-driven/context-pack.json`, containing requirement-centered excerpts
+bound to those full-document hashes.
 
 ## 4. Read and synthesize before implementation
 
-Read every file listed in `.document-driven/context-lock.json` completely. Create
-a compact implementation plan mapping each requirement to:
+Read `.document-driven/context-pack.json` first. Open a cited full document when
+the excerpt is ambiguous, a cross-cutting invariant is required, or two excerpts
+appear to conflict. The full locked files remain authoritative; the pack is a
+token-efficient view, not a weaker approval boundary.
+
+Create a compact implementation plan mapping each requirement to:
 
 - intended code boundary
 - intended test or verification
@@ -70,3 +76,4 @@ with `setup-development-providers` before orchestration.
 - Dependencies and path-rule artifacts cannot be skipped.
 - The task lock is invalid after any locked document or manifest change.
 - Preparation ends before implementation begins.
+- A context pack narrows reading, never approval, integrity, or path policy.
