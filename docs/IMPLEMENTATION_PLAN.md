@@ -2,21 +2,22 @@
 
 ## 1. 제품 정의
 
-이 플러그인은 PRD를 출발점으로 사용자와 기술 결정을 합의하고, 이번
-프로젝트에 실제로 필요한 문서만 동적으로 선택해 개별 작성·승인한 뒤,
-승인 문서를 구현의 실행 조건으로 만드는 Codex·Claude Code·Antigravity 공용
-플러그인이다.
+이 플러그인은 PRD에서 검증 가능한 수직 Fast MVP를 먼저 만들거나 처음부터
+Strict 문서 승인을 선택할 수 있는 Codex·Claude Code·Antigravity 공용
+플러그인이다. Fast MVP는 검증된 Git baseline을 통해서만 Strict로 승격하며,
+두 경로는 같은 승인 문서·잠금·추적성 게이트로 수렴한다.
 
 고정하는 것은 문서 목록이 아니라 다음 절차다.
 
-1. PRD와 기존 저장소를 읽는다.
-2. 한 번에 질문 하나로 미확정 결정을 드러낸다.
-3. 중요한 결정에는 2~3개 접근과 장단점을 제시한다.
-4. 결정 결과를 담을 최소 문서 그래프를 제안한다.
-5. 사용자가 그래프를 승인한 뒤에만 매니페스트를 만든다.
-6. 문서를 하나씩 대화형으로 작성하고 명시적으로 승인받는다.
-7. 관련 승인 문서를 잠그기 전에는 구현을 허용하지 않는다.
+1. 사용자가 Fast MVP 또는 Direct Strict 경로를 명시적으로 선택한다.
+2. Fast에서는 핵심 사용자 여정 하나를 수직 구현하고 실행 증거를 남긴다.
+3. 승격 시 PRD·설계·코드·테스트·증거를 비교하고 Blocking Gap을 제거한다.
+4. Strict에서는 최소 문서 그래프를 제안하고 사용자 승인을 받는다.
+5. 문서를 하나씩 대화형으로 작성하고 명시적으로 승인받는다.
+6. Fast 승격은 승인된 Adoption Plan과 검증 커밋을 immutable baseline으로 묶는다.
+7. 관련 승인 문서를 Task Lock으로 잠그기 전에는 Strict 구현을 허용하지 않는다.
 8. 설계가 바뀌면 문서 재승인과 새 잠금 후 구현을 계속한다.
+9. Strict에서 Fast로의 강등은 허용하지 않는다.
 
 ## 2. 동적 문서 그래프
 
@@ -36,8 +37,10 @@
 
 ## 3. 스킬 구성
 
-문서 종류마다 고정 스킬을 만들지 않고 역할 기반 공용 스킬 여덟 개를 둔다.
+문서 종류마다 고정 스킬을 만들지 않고 역할 기반 공용 스킬 열 개를 둔다.
 
+- `build-mvp-from-prd`: 핵심 사용자 여정 수직 구현·검증·evidence 기록
+- `graduate-mvp-to-ddd`: 승인 계획·문서·baseline을 통한 Strict 승격
 - `discover-document-graph`: PRD 인터뷰와 문서 그래프 합의
 - `author-project-document`: 선택된 문서 한 개 작성·검토·승인
 - `generate-development-harness`: 저장소 하네스 설치
@@ -56,6 +59,9 @@ AGENTS.md
 CLAUDE.md
 docs/document-manifest.json
 .document-driven/
+├── mvp-evidence.json
+├── adoption-plan.json
+├── adoption-baseline.json
 ├── policy.json
 ├── orchestration.json
 ├── context-lock.json
@@ -176,12 +182,19 @@ dependency 순으로 재사용하고 마지막에만 최소 diff를 작성한다
 CI는 매니페스트 스키마, 문서 승인 해시, 컨텍스트 잠금, 요구사항 ID,
 요구사항→문서→코드→테스트 추적성, 기준 커밋 이후 변경된 모든 구현 경로의
 추적성 포함 여부, 경로별 필수 문서 포함 여부를 검사한다.
+Fast 승격 저장소에서는 baseline commit/tree, baseline 커밋 속 evidence blob,
+승인된 Adoption Plan hash, baseline 불변성을 먼저 검사한다. CI base가 baseline
+이전이면 baseline부터, 이후이면 실제 PR base부터 변경 범위를 계산한다.
 플랫폼에 종속적인 의미론적 계약 검증은 프로젝트가 별도 테스트 명령으로
 추가한다.
 
 ## 6. MVP 완료 기준
 
 - Codex, Claude Code, Antigravity에서 같은 스킬을 발견할 수 있다.
+- Fast MVP가 핵심 flow와 실행 증거를 기록하고 Strict 저장소에서는 거부된다.
+- 승인 문서와 Adoption Plan 이후에만 immutable baseline을 등록할 수 있다.
+- baseline 이전 구현에는 소급 추적성을 요구하지 않고 이후 변경에는 요구한다.
+- Strict에서 Fast로의 정책 강등과 baseline 수정·삭제를 검출한다.
 - 고정 문서 목록 없이 승인된 문서 그래프를 만들 수 있다.
 - 승인 후 문서 변경이 잠금과 검증을 실패시킨다.
 - 잠금 없이 구현 파일 쓰기를 Hook이 거부한다.

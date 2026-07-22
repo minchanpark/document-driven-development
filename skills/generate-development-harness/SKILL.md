@@ -1,6 +1,6 @@
 ---
 name: generate-development-harness
-description: Install repository-local document-driven development rules, platform-specific hooks, content-hash locks, traceability files, path policies, and an optional CI gate after the project's dynamic document graph is approved. Use when all active artifacts in docs/document-manifest.json are approved and the user wants Codex, Claude Code, or Antigravity to be forced to consult them during development.
+description: Install repository-local Strict document-driven development rules, platform-specific hooks, content-hash locks, traceability files, path policies, baseline governance, and an optional CI gate after the project's dynamic document graph is approved. Use when all active artifacts are approved for Direct Strict entry or immediately after a validated Fast-MVP baseline is adopted.
 ---
 
 # Generate Development Harness
@@ -8,6 +8,10 @@ description: Install repository-local document-driven development rules, platfor
 Install a self-contained harness without replacing existing agent instructions or
 hook settings. The manifest must already exist and every active artifact must be
 approved.
+
+If `.document-driven/adoption-baseline.json` exists, treat installation as a
+fail-closed Fast-MVP graduation. Never remove or replace the baseline to recover
+from an installation failure.
 
 ## 1. Inspect enforcement context
 
@@ -68,6 +72,7 @@ Run and report all of these checks:
 
 ```text
 python3 .document-driven/bin/docflow.py validate --root <repo>
+python3 .document-driven/bin/docflow.py check-baseline --root <repo>
 python3 .document-driven/bin/docflow.py guard-edit --root <repo> --path <one implementation path>
 python3 .document-driven/bin/docflow.py guard-edit --root <repo> --path <one document path>
 ```
@@ -109,6 +114,8 @@ host-native agents alone.
 ## Non-negotiable gates
 
 - Do not install before every active artifact is approved.
+- Require `source_mode=fast-mvp` when an adoption baseline exists and
+  `source_mode=direct-strict` when it does not.
 - Do not overwrite existing agent instructions or hook configuration.
 - Do not claim hooks are unbypassable.
 - Do not create fixed document names or fixed path rules.

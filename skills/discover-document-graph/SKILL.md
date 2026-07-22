@@ -1,6 +1,6 @@
 ---
 name: discover-document-graph
-description: Start document-driven development from a PRD by inspecting project context, interviewing the user one question at a time, comparing technical approaches, and proposing the minimum project-specific document graph for explicit approval. Use for new projects, major architectural changes, or repositories that have a PRD but no approved docs/document-manifest.json. Do not use to draft a single artifact after the graph already exists.
+description: Start Direct Strict document-driven development from a PRD by inspecting project context, interviewing the user one question at a time, comparing technical approaches, and proposing the minimum project-specific document graph for explicit approval. Use for new projects, major architectural changes, or repositories that have a PRD but no approved docs/document-manifest.json when the user chooses Strict DDD. Do not use when the user explicitly selects Fast MVP or when graduating a validated MVP.
 ---
 
 # Discover Document Graph
@@ -8,6 +8,10 @@ description: Start document-driven development from a PRD by inspecting project 
 Turn a PRD into an explicitly approved plan for project documents. Fix the
 decision process, not the document list. Do not implement, scaffold product
 code, or create the manifest before the user approves the graph.
+
+Confirm Direct Strict entry before discovery. Hand an explicit Fast-MVP choice
+to `build-mvp-from-prd` and an evidence-backed MVP adoption to
+`graduate-mvp-to-ddd`.
 
 ## 1. Inspect context
 

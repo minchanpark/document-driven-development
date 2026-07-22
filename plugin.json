@@ -1,5 +1,5 @@
 {
   "$schema": "https://antigravity.google/schemas/v1/plugin.json",
   "name": "document-driven-development",
-  "description": "Discover approved project documents from a PRD and gate single or orchestrated implementation with task and package locks."
+  "description": "Validate a Fast MVP or discover approved project documents, then gate adopted or direct Strict implementation with task and package locks."
 }

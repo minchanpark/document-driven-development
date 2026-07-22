@@ -1,5 +1,15 @@
 # Document-driven development
 
+The plugin has two explicit entry lanes:
+
+- Use `build-mvp-from-prd` only when the user explicitly chooses Fast MVP and no
+  Strict policy, harness, context lock, or adoption baseline exists.
+- Use the approved document graph and harness for Direct Strict entry.
+
+Fast MVP may graduate to Strict DDD through `graduate-mvp-to-ddd`. Never
+downgrade Strict DDD to Fast MVP. When an adoption baseline exists, treat it as
+immutable and fail closed until Strict activation is valid.
+
 When a repository contains `docs/document-manifest.json`, treat the approved document graph as the implementation contract.
 
 - Do not edit implementation files until the relevant documents are approved and a valid task context lock exists.

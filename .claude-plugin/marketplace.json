@@ -8,7 +8,7 @@
     {
       "name": "document-driven-development",
       "source": "./",
-      "description": "Turn a PRD into approved project documents and enforce task- or package-locked implementation.",
+      "description": "Validate a Fast MVP or start Direct Strict, then enforce immutable adoption and task- or package-locked implementation.",
       "author": {
         "name": "Park Minchan"
       },
@@ -19,6 +19,8 @@
       "tags": [
         "document-driven-development",
         "prd",
+        "fast-mvp",
+        "adoption-baseline",
         "architecture",
         "traceability",
         "orchestration",

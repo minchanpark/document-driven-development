@@ -17,6 +17,9 @@ Read the user request, PRD, manifest, and policy. Identify:
 - implementation scopes matching manifest `required_for` tags
 - paths likely to change and any matching policy `path_rules`
 
+Run `check-baseline` before selecting task context. Stop if baseline, source
+mode, or Git ancestry validation fails.
+
 If the requested behavior has no traceable requirement, stop. Use the appropriate
 document workflow to add and approve the requirement before implementation.
 

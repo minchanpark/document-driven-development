@@ -1,8 +1,9 @@
 # Document Driven Development
 
-A Codex, Claude Code, and Antigravity plugin that turns a PRD into a
-project-specific set of approved documents and makes those documents an
-implementation prerequisite.
+A Codex, Claude Code, and Antigravity plugin with two explicit entry lanes:
+build and validate a vertical Fast MVP, then optionally graduate it through an
+immutable baseline; or start directly with a project-specific approved document
+graph. Both routes converge on the same Strict implementation gates.
 
 The plugin does **not** prescribe `ERD.md`, `DATABASE.md`, or any other fixed
 artifact list. It prescribes a decision process. The user and agent agree on the
@@ -32,6 +33,21 @@ Run `/reload-plugins` in an active Claude Code session, or start a new session.
 
 ## Workflow
 
+### Fast MVP, then Strict adoption
+
+1. `build-mvp-from-prd` runs only after an explicit Fast choice, implements one
+   critical journey through real boundaries, and records flow-linked evidence.
+2. `graduate-mvp-to-ddd` compares PRD, design, code, tests, and evidence;
+   separates blocking gaps from Known Debt; approves the minimum document graph;
+   and binds the approved adoption plan.
+3. `docflow.py adopt-baseline` records the validated MVP commit/tree and hashes
+   the committed evidence and approved adoption plan.
+4. `generate-development-harness` immediately activates Strict DDD. The baseline
+   is immutable, Strict cannot downgrade to Fast, and only changes after the
+   baseline require traceability.
+
+### Direct Strict
+
 1. `discover-document-graph` reads the PRD and repository, interviews the user,
    compares approaches, and proposes a minimal artifact graph.
 2. `author-project-document` drafts and reviews one selected artifact at a
@@ -51,9 +67,16 @@ Run `/reload-plugins` in an active Claude Code session, or start a new session.
 8. `verify-document-driven-change` checks approval, run completion, drift,
    traceability, and tests.
 
+Fast MVP is deliberately independent of Strict document approval and Task Locks.
+It is also unavailable once a Strict policy, harness, context lock, or adoption
+baseline exists.
+
 ## Canonical project files
 
 - `docs/document-manifest.json`: dynamic artifact graph and approval state
+- `.document-driven/mvp-evidence.json`: Fast-MVP flow and verification evidence
+- `.document-driven/adoption-plan.json`: explicitly approved graduation plan
+- `.document-driven/adoption-baseline.json`: immutable Fast-to-Strict boundary
 - `.document-driven/policy.json`: repository-specific enforcement rules
 - `.document-driven/orchestration.json`: mode, review gates, loop limits, and non-secret provider routing
 - `.document-driven/context-lock.json`: task, requirement, and document hashes
@@ -81,7 +104,7 @@ Optional external provider adapters are available through
 `model-council`; host-native agents are the default and the DDD workflow remains
 fully functional without any external CLI.
 
-## Fast path without weaker gates
+## Strict performance optimizations without weaker gates
 
 The harness separates integrity from prompt size:
 

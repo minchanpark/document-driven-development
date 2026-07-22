@@ -12,8 +12,16 @@ import docflow
 def context_message(root: Path | None = None) -> str | None:
     root = root or docflow.find_root(os.getcwd())
     if not (root / docflow.MANIFEST_REL).is_file():
+        if (root / docflow.ADOPTION_BASELINE_REL).exists():
+            return (
+                "Document-driven MVP adoption is incomplete: a baseline exists but the "
+                "approved document graph is missing. Fast-MVP writes are disabled; finish "
+                "Strict harness activation."
+            )
         return None
     try:
+        policy = docflow.load_policy(root)
+        governance_errors = docflow.check_baseline(root, policy=policy)
         manifest = docflow.load_manifest(root)
         errors = docflow.validate_manifest(root, manifest)
         active = [
@@ -25,7 +33,12 @@ def context_message(root: Path | None = None) -> str | None:
         lock, lock_errors = (
             docflow.check_lock(root, manifest=manifest) if not errors else (None, errors)
         )
-        if errors:
+        if governance_errors:
+            message = (
+                "Document-driven governance is invalid. Do not implement. "
+                + " ".join(governance_errors)
+            )
+        elif errors:
             message = (
                 "Document-driven development is initialized, but the manifest is invalid. "
                 "Do not implement. Repair and approve the document graph first."

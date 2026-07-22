@@ -33,6 +33,24 @@ RUNS_REL = STATE_REL / "runs"
 TRACE_SHARDS_REL = STATE_REL / "trace"
 EVIDENCE_REL = STATE_REL / "evidence"
 WORKTREES_REL = STATE_REL / "worktrees.json"
+MVP_EVIDENCE_REL = STATE_REL / "mvp-evidence.json"
+ADOPTION_PLAN_REL = STATE_REL / "adoption-plan.json"
+ADOPTION_BASELINE_REL = STATE_REL / "adoption-baseline.json"
+ADOPTION_ALLOWED_PATHS = (
+    "docs/**",
+    ".document-driven/**",
+    ".codex/**",
+    ".claude/**",
+    ".agents/**",
+    ".github/workflows/document-driven-development.yml",
+    "AGENTS.md",
+    "CLAUDE.md",
+    ".gitignore",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE",
+    "NOTICE",
+)
 CONTEXT_MATCH_LIMIT = 2
 CONTEXT_WINDOW_LINES = 4
 CONTEXT_OUTLINE_LIMIT = 30
@@ -130,10 +148,15 @@ def find_root(start: str | Path | None = None) -> Path:
     current = Path(start or Path.cwd()).resolve()
     if current.is_file():
         current = current.parent
+    git_candidate: Path | None = None
     for candidate in (current, *current.parents):
         if (candidate / MANIFEST_REL).is_file():
             return candidate
-    return current
+        if (candidate / STATE_REL).is_dir():
+            return candidate
+        if git_candidate is None and (candidate / ".git").exists():
+            git_candidate = candidate
+    return git_candidate or current
 
 
 def repo_path(root: Path, raw: str) -> Path:
@@ -348,9 +371,11 @@ def dependency_closure(
     return result
 
 
-def default_policy() -> dict[str, Any]:
-    return {
-        "schema_version": "1.0",
+def default_policy(*, source_mode: str = "direct-strict") -> dict[str, Any]:
+    policy: dict[str, Any] = {
+        "schema_version": "1.1",
+        "mode": "strict",
+        "source_mode": source_mode,
         "manifest_path": MANIFEST_REL.as_posix(),
         "documentation_paths": [
             "docs/**",
@@ -371,15 +396,45 @@ def default_policy() -> dict[str, Any]:
         "require_requirement_ids": True,
         "require_traceability": True,
     }
+    if source_mode == "fast-mvp":
+        policy["adoption_baseline_path"] = ADOPTION_BASELINE_REL.as_posix()
+    return policy
+
+
+def normalize_policy(policy: dict[str, Any]) -> dict[str, Any]:
+    normalized = json.loads(json.dumps(policy))
+    version = normalized.get("schema_version")
+    if version == "1.0":
+        normalized["schema_version"] = "1.1"
+        normalized.setdefault("mode", "strict")
+        normalized.setdefault("source_mode", "direct-strict")
+    elif version != "1.1":
+        raise DocflowError("policy.json schema_version must be '1.0' or '1.1'")
+    if normalized.get("mode") != "strict":
+        raise DocflowError("Strict harness policy mode must be 'strict'")
+    source_mode = normalized.get("source_mode")
+    if source_mode not in {"direct-strict", "fast-mvp"}:
+        raise DocflowError(
+            "policy.json source_mode must be 'direct-strict' or 'fast-mvp'"
+        )
+    baseline_path = normalized.get("adoption_baseline_path")
+    if source_mode == "fast-mvp":
+        if baseline_path != ADOPTION_BASELINE_REL.as_posix():
+            raise DocflowError(
+                "Fast-MVP policy must bind the canonical adoption baseline path"
+            )
+    elif baseline_path is not None:
+        raise DocflowError(
+            "Direct-Strict policy must not declare an adoption baseline path"
+        )
+    return normalized
 
 
 def load_policy(root: Path) -> dict[str, Any]:
     path = root / POLICY_REL
     if not path.is_file():
         return default_policy()
-    policy = load_json(path)
-    if policy.get("schema_version") != "1.0":
-        raise DocflowError("policy.json schema_version must be '1.0'")
+    policy = normalize_policy(load_json(path))
     if not _string_list(policy.get("documentation_paths", [])):
         raise DocflowError("policy.json documentation_paths must be a string array")
     rules = policy.get("path_rules", [])
@@ -394,6 +449,395 @@ def load_policy(root: Path) -> dict[str, Any]:
             raise DocflowError(
                 f"policy.json path_rules[{index}].requires_artifacts must be a string array"
             )
+    return policy
+
+
+def validate_mvp_evidence(value: dict[str, Any]) -> list[str]:
+    errors: list[str] = []
+    if value.get("schema_version") != "1.0":
+        errors.append("mvp-evidence.json schema_version must be '1.0'")
+    if value.get("mode") != "fast-mvp":
+        errors.append("mvp-evidence.json mode must be 'fast-mvp'")
+    if value.get("stage") not in {"demo-ready", "connected", "pilot-ready"}:
+        errors.append(
+            "mvp-evidence.json stage must be demo-ready, connected, or pilot-ready"
+        )
+    flows = value.get("accepted_flows")
+    if not isinstance(flows, list) or not flows:
+        errors.append("mvp-evidence.json accepted_flows must be a non-empty array")
+        flows = []
+    flow_ids: set[str] = set()
+    for index, flow in enumerate(flows):
+        label = f"accepted_flows[{index}]"
+        if not isinstance(flow, dict):
+            errors.append(f"{label} must be an object")
+            continue
+        flow_id = flow.get("id")
+        if not isinstance(flow_id, str) or not SAFE_ID.fullmatch(flow_id):
+            errors.append(f"{label}.id must be a safe non-empty id")
+        elif flow_id in flow_ids:
+            errors.append(f"Duplicate accepted flow id: {flow_id}")
+        else:
+            flow_ids.add(flow_id)
+        if not _string_list(flow.get("requirement_ids", [])):
+            errors.append(f"{label}.requirement_ids must be a non-empty string array")
+        if flow.get("status") != "passed":
+            errors.append(f"{label}.status must be 'passed' before adoption")
+
+    verification = value.get("verification")
+    if not isinstance(verification, list) or not verification:
+        errors.append("mvp-evidence.json verification must be a non-empty array")
+        verification = []
+    verification_ids: set[str] = set()
+    passed_flows: set[str] = set()
+    allowed_results = {"passed", "failed", "unavailable"}
+    for index, item in enumerate(verification):
+        label = f"verification[{index}]"
+        if not isinstance(item, dict):
+            errors.append(f"{label} must be an object")
+            continue
+        evidence_id = item.get("id")
+        if not isinstance(evidence_id, str) or not SAFE_ID.fullmatch(evidence_id):
+            errors.append(f"{label}.id must be a safe non-empty id")
+        elif evidence_id in verification_ids:
+            errors.append(f"Duplicate verification id: {evidence_id}")
+        else:
+            verification_ids.add(evidence_id)
+        linked_flows = item.get("flow_ids")
+        if not _string_list(linked_flows):
+            errors.append(f"{label}.flow_ids must be a non-empty string array")
+            linked_flows = []
+        unknown = sorted(set(linked_flows) - flow_ids)
+        if unknown:
+            errors.append(f"{label} references unknown flows: {', '.join(unknown)}")
+        result = item.get("result")
+        if result not in allowed_results:
+            errors.append(f"{label}.result must be passed, failed, or unavailable")
+        if result == "passed":
+            passed_flows.update(linked_flows)
+        if not isinstance(item.get("type"), str) or not item.get("type"):
+            errors.append(f"{label}.type is required")
+        if not isinstance(item.get("executed_at"), str) or not item.get("executed_at"):
+            errors.append(f"{label}.executed_at is required")
+        if item.get("type") != "user-attestation":
+            if not isinstance(item.get("command"), str) or not item.get("command"):
+                errors.append(f"{label}.command is required for automated evidence")
+            if result == "passed" and item.get("exit_code") != 0:
+                errors.append(f"{label}.exit_code must be 0 when result is passed")
+        evidence_paths = item.get("evidence_paths", [])
+        if not _string_list(evidence_paths) and evidence_paths != []:
+            errors.append(f"{label}.evidence_paths must be a string array")
+    missing_evidence = sorted(flow_ids - passed_flows)
+    if missing_evidence:
+        errors.append(
+            "Accepted flows lack passed verification: " + ", ".join(missing_evidence)
+        )
+    for field in ("validated_by", "validated_at"):
+        if not isinstance(value.get(field), str) or not value.get(field):
+            errors.append(f"mvp-evidence.json {field} is required")
+    return errors
+
+
+def validate_adoption_plan(value: dict[str, Any]) -> list[str]:
+    errors: list[str] = []
+    if value.get("schema_version") != "1.0":
+        errors.append("adoption-plan.json schema_version must be '1.0'")
+    if value.get("status") != "approved":
+        errors.append("adoption-plan.json status must be 'approved'")
+    gaps = value.get("blocking_gaps")
+    if not isinstance(gaps, list):
+        errors.append("adoption-plan.json blocking_gaps must be an array")
+    elif gaps:
+        errors.append("Blocking gaps remain in the adoption plan")
+    debt = value.get("known_debt", [])
+    if not isinstance(debt, list) or not all(isinstance(item, dict) for item in debt):
+        errors.append("adoption-plan.json known_debt must be an object array")
+    for field in ("approved_by", "approved_at"):
+        if not isinstance(value.get(field), str) or not value.get(field):
+            errors.append(f"adoption-plan.json {field} is required")
+    return errors
+
+
+def _git(
+    root: Path,
+    *arguments: str,
+    text: bool = True,
+) -> subprocess.CompletedProcess[Any]:
+    return subprocess.run(
+        ["git", "-C", str(root), *arguments],
+        check=False,
+        capture_output=True,
+        text=text,
+    )
+
+
+def git_commit_exists(root: Path, commit: str) -> bool:
+    return _git(root, "cat-file", "-e", f"{commit}^{{commit}}").returncode == 0
+
+
+def git_is_ancestor(root: Path, ancestor: str, descendant: str) -> bool:
+    return _git(root, "merge-base", "--is-ancestor", ancestor, descendant).returncode == 0
+
+
+def git_blob(root: Path, commit: str, path: str) -> bytes:
+    result = _git(root, "show", f"{commit}:{path}", text=False)
+    if result.returncode != 0:
+        stderr = result.stderr.decode("utf-8", errors="replace").strip()
+        raise DocflowError(f"Unable to read {path} from {commit}: {stderr}")
+    return bytes(result.stdout)
+
+
+def git_has_path(root: Path, commit: str, path: str) -> bool:
+    return _git(root, "cat-file", "-e", f"{commit}:{path}").returncode == 0
+
+
+def git_tree(root: Path, commit: str) -> str:
+    result = _git(root, "rev-parse", f"{commit}^{{tree}}")
+    if result.returncode != 0:
+        raise DocflowError(f"Unable to resolve tree for commit {commit}")
+    return result.stdout.strip()
+
+
+def git_worktree_clean(root: Path) -> bool:
+    result = _git(root, "status", "--porcelain")
+    return result.returncode == 0 and not result.stdout.strip()
+
+
+def git_paths_between(root: Path, base: str, head: str = "HEAD") -> list[str]:
+    result = _git(root, "diff", "--name-only", f"{base}..{head}")
+    if result.returncode != 0:
+        raise DocflowError(
+            f"Unable to compute changed paths from {base}: {result.stderr.strip()}"
+        )
+    return [line.strip() for line in result.stdout.splitlines() if line.strip()]
+
+
+def effective_ci_base(root: Path, base_ref: str, policy: dict[str, Any]) -> str:
+    if policy.get("source_mode") != "fast-mvp":
+        return base_ref
+    baseline = load_json(root / ADOPTION_BASELINE_REL).get("baseline_commit")
+    if not isinstance(baseline, str) or not baseline:
+        raise DocflowError("Fast-MVP policy has no valid baseline commit")
+    if not git_is_ancestor(root, baseline, "HEAD"):
+        raise DocflowError("Adoption baseline is not an ancestor of HEAD")
+    if git_is_ancestor(root, base_ref, baseline):
+        return baseline
+    if git_is_ancestor(root, baseline, base_ref):
+        return base_ref
+    raise DocflowError("CI base and adoption baseline have diverged histories")
+
+
+def _baseline_flow_index(evidence: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    return {
+        item["id"]: item
+        for item in evidence.get("accepted_flows", [])
+        if isinstance(item, dict) and isinstance(item.get("id"), str)
+    }
+
+
+def _baseline_verification_index(evidence: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    return {
+        item["id"]: item
+        for item in evidence.get("verification", [])
+        if isinstance(item, dict) and isinstance(item.get("id"), str)
+    }
+
+
+def check_baseline(
+    root: Path,
+    *,
+    policy: dict[str, Any] | None = None,
+    base_ref: str | None = None,
+) -> list[str]:
+    errors: list[str] = []
+    try:
+        policy = policy or load_policy(root)
+    except DocflowError as exc:
+        return [str(exc)]
+    baseline_path = root / ADOPTION_BASELINE_REL
+    if policy.get("source_mode") == "direct-strict":
+        if baseline_path.exists():
+            errors.append("Direct-Strict repository must not contain an adoption baseline")
+        for ref, label in (("HEAD", "committed HEAD"), (base_ref, "CI base")):
+            if not ref or not git_commit_exists(root, ref):
+                continue
+            if git_has_path(root, ref, ADOPTION_BASELINE_REL.as_posix()):
+                errors.append(
+                    f"Fast-MVP adoption baseline was removed relative to {label}"
+                )
+            if git_has_path(root, ref, POLICY_REL.as_posix()):
+                try:
+                    raw = json.loads(git_blob(root, ref, POLICY_REL.as_posix()))
+                    if (
+                        isinstance(raw, dict)
+                        and normalize_policy(raw).get("source_mode") == "fast-mvp"
+                    ):
+                        errors.append(
+                            f"Fast-MVP Strict policy was downgraded relative to {label}"
+                        )
+                except (DocflowError, json.JSONDecodeError) as exc:
+                    errors.append(str(exc))
+        return errors
+    if not baseline_path.is_file():
+        return ["Fast-MVP Strict repository is missing adoption-baseline.json"]
+    try:
+        baseline = load_json(baseline_path)
+    except DocflowError as exc:
+        return [str(exc)]
+    if baseline.get("schema_version") != "1.0":
+        errors.append("adoption-baseline.json schema_version must be '1.0'")
+    if baseline.get("mode") != "strict" or baseline.get("source_mode") != "fast-mvp":
+        errors.append("Adoption baseline must declare strict mode from fast-mvp")
+    commit = baseline.get("baseline_commit")
+    if not isinstance(commit, str) or not commit:
+        errors.append("adoption baseline_commit is required")
+        commit = ""
+    elif not git_commit_exists(root, commit):
+        errors.append(f"Adoption baseline commit does not exist: {commit}")
+    elif not git_is_ancestor(root, commit, "HEAD"):
+        errors.append("Adoption baseline commit is not an ancestor of HEAD")
+    elif baseline.get("baseline_tree") != git_tree(root, commit):
+        errors.append("Adoption baseline tree hash does not match the commit")
+    enforcement = baseline.get("enforcement")
+    if not isinstance(enforcement, dict) or enforcement.get("changes_after") != commit:
+        errors.append("enforcement.changes_after must equal baseline_commit")
+
+    evidence_record = baseline.get("evidence")
+    evidence: dict[str, Any] | None = None
+    if not isinstance(evidence_record, dict):
+        errors.append("Adoption baseline evidence record is required")
+    elif commit:
+        evidence_path = evidence_record.get("path")
+        if evidence_path != MVP_EVIDENCE_REL.as_posix():
+            errors.append("Adoption baseline must bind the canonical MVP evidence path")
+        else:
+            try:
+                evidence_bytes = git_blob(root, commit, evidence_path)
+                if evidence_record.get("sha256") != sha256_bytes(evidence_bytes):
+                    errors.append("MVP evidence hash does not match the baseline commit blob")
+                current_evidence_path = root / MVP_EVIDENCE_REL
+                if not current_evidence_path.is_file():
+                    errors.append("MVP evidence file is missing after adoption")
+                elif current_evidence_path.read_bytes() != evidence_bytes:
+                    errors.append("MVP evidence differs from the adopted baseline blob")
+                parsed = json.loads(evidence_bytes.decode("utf-8"))
+                if not isinstance(parsed, dict):
+                    errors.append("Baseline MVP evidence must be a JSON object")
+                else:
+                    evidence = parsed
+                    errors.extend(validate_mvp_evidence(evidence))
+                    for verification in evidence.get("verification", []):
+                        if not isinstance(verification, dict):
+                            continue
+                        for artifact_path in verification.get("evidence_paths", []):
+                            try:
+                                normalized = relative_path(root, artifact_path)
+                                if not git_has_path(root, commit, normalized):
+                                    errors.append(
+                                        "MVP evidence artifact is absent from the baseline commit: "
+                                        + normalized
+                                    )
+                            except DocflowError as exc:
+                                errors.append(str(exc))
+            except (DocflowError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+                errors.append(str(exc))
+
+    plan_record = baseline.get("adoption_plan")
+    plan: dict[str, Any] | None = None
+    if not isinstance(plan_record, dict):
+        errors.append("Adoption baseline plan record is required")
+    else:
+        plan_path = plan_record.get("path")
+        if plan_path != ADOPTION_PLAN_REL.as_posix():
+            errors.append("Adoption baseline must bind the canonical adoption plan path")
+        else:
+            try:
+                plan_file = repo_path(root, plan_path)
+                if not plan_file.is_file():
+                    errors.append("Approved adoption plan file is missing")
+                else:
+                    if plan_record.get("sha256") != sha256_file(plan_file):
+                        errors.append("Approved adoption plan hash changed")
+                    plan = load_json(plan_file)
+                    errors.extend(validate_adoption_plan(plan))
+            except DocflowError as exc:
+                errors.append(str(exc))
+
+    accepted = baseline.get("accepted_flows")
+    if not isinstance(accepted, list) or not accepted:
+        errors.append("Adoption baseline accepted_flows must be a non-empty array")
+    elif evidence is not None:
+        flows = _baseline_flow_index(evidence)
+        verifications = _baseline_verification_index(evidence)
+        for index, item in enumerate(accepted):
+            if not isinstance(item, dict):
+                errors.append(f"accepted_flows[{index}] must be an object")
+                continue
+            flow = flows.get(item.get("id"))
+            if flow is None:
+                errors.append(f"Baseline references unknown flow: {item.get('id')}")
+                continue
+            if item.get("requirement_ids") != flow.get("requirement_ids"):
+                errors.append(f"Baseline requirement ids differ for flow {item.get('id')}")
+            evidence_ids = item.get("evidence_ids")
+            if not _string_list(evidence_ids):
+                errors.append(f"Baseline flow {item.get('id')} needs evidence ids")
+                continue
+            for evidence_id in evidence_ids:
+                verification = verifications.get(evidence_id)
+                if (
+                    verification is None
+                    or verification.get("result") != "passed"
+                    or item.get("id") not in verification.get("flow_ids", [])
+                ):
+                    errors.append(
+                        f"Baseline flow {item.get('id')} has invalid evidence {evidence_id}"
+                    )
+
+    debt = baseline.get("known_debt", [])
+    if not isinstance(debt, list) or not all(isinstance(item, dict) for item in debt):
+        errors.append("Adoption baseline known_debt must be an object array")
+    elif any(item.get("blocking") is True for item in debt):
+        errors.append("Blocking debt cannot be accepted in an adoption baseline")
+    if plan is not None and baseline.get("approved_by") != plan.get("approved_by"):
+        errors.append("Baseline approval identity differs from the adoption plan")
+
+    baseline_rel = ADOPTION_BASELINE_REL.as_posix()
+    if git_has_path(root, "HEAD", baseline_rel):
+        try:
+            if git_blob(root, "HEAD", baseline_rel) != baseline_path.read_bytes():
+                errors.append("Adoption baseline differs from the committed HEAD version")
+        except DocflowError as exc:
+            errors.append(str(exc))
+    if base_ref:
+        if not git_commit_exists(root, base_ref):
+            errors.append(f"CI base ref does not resolve to a commit: {base_ref}")
+        elif git_has_path(root, base_ref, baseline_rel):
+            try:
+                if git_blob(root, base_ref, baseline_rel) != baseline_path.read_bytes():
+                    errors.append("Adoption baseline changed after its bootstrap commit")
+            except DocflowError as exc:
+                errors.append(str(exc))
+        policy_rel = POLICY_REL.as_posix()
+        if git_has_path(root, base_ref, policy_rel):
+            try:
+                previous_raw = json.loads(git_blob(root, base_ref, policy_rel))
+                if isinstance(previous_raw, dict):
+                    previous = normalize_policy(previous_raw)
+                    if previous.get("source_mode") == "direct-strict":
+                        errors.append("Direct-Strict repositories cannot adopt a Fast-MVP baseline")
+            except (DocflowError, json.JSONDecodeError) as exc:
+                errors.append(str(exc))
+    return errors
+
+
+def require_governance(
+    root: Path, *, base_ref: str | None = None
+) -> dict[str, Any]:
+    policy = load_policy(root)
+    errors = check_baseline(root, policy=policy, base_ref=base_ref)
+    if errors:
+        raise DocflowError("Governance validation failed:\n- " + "\n- ".join(errors))
     return policy
 
 
@@ -649,6 +1093,10 @@ def check_lock(
     manifest: dict[str, Any] | None = None,
 ) -> tuple[dict[str, Any] | None, list[str]]:
     errors: list[str] = []
+    try:
+        require_governance(root)
+    except DocflowError as exc:
+        return None, [str(exc)]
     if manifest is None:
         try:
             manifest = require_valid_manifest(root)
@@ -1078,6 +1526,7 @@ def _issue_guard_lease(
     sources = [root / MANIFEST_REL, root / LOCK_REL]
     for candidate in (
         root / POLICY_REL,
+        root / ADOPTION_BASELINE_REL,
         root / PACKAGE_LOCK_REL,
         run_path(root, task_id),
     ):
@@ -1140,8 +1589,10 @@ def _guard_from_lease(
 
 def guard_edit(root: Path, raw_path: str) -> tuple[bool, str]:
     try:
-        policy = load_policy(root)
         path = relative_path(root, raw_path)
+        if path == ADOPTION_BASELINE_REL.as_posix():
+            return False, "The adoption baseline is immutable after creation"
+        policy = require_governance(root)
     except DocflowError as exc:
         return False, str(exc)
     package_lock_exists = (root / PACKAGE_LOCK_REL).is_file()
@@ -1656,8 +2107,148 @@ def write_context_pack(
     return path
 
 
+def cmd_adopt_baseline(args: argparse.Namespace) -> None:
+    root = find_root(args.root)
+    baseline_path = root / ADOPTION_BASELINE_REL
+    if baseline_path.exists():
+        raise DocflowError("An adoption baseline already exists and cannot be replaced")
+    if (root / POLICY_REL).exists() or (root / STATE_REL / "bin/docflow.py").exists():
+        raise DocflowError("An existing Strict harness cannot be converted from Fast MVP")
+    if (root / LOCK_REL).exists():
+        raise DocflowError("An existing Strict context lock blocks Fast-MVP adoption")
+    manifest = require_valid_manifest(root)
+    active = [
+        item for item in manifest["artifacts"] if item.get("status") != "superseded"
+    ]
+    if not active or any(item.get("status") != "approved" for item in active):
+        raise DocflowError(
+            "Approve every active project document before adopting the MVP baseline"
+        )
+    if not (root / ".git").exists():
+        raise DocflowError("Adoption baseline requires a Git repository")
+    if not git_worktree_clean(root):
+        raise DocflowError("Adoption requires a clean working tree")
+    resolved = _git(root, "rev-parse", args.baseline_commit)
+    if resolved.returncode != 0:
+        raise DocflowError(f"Unknown MVP baseline commit: {args.baseline_commit}")
+    commit = resolved.stdout.strip()
+    if not git_commit_exists(root, commit):
+        raise DocflowError(f"MVP baseline is not a commit: {commit}")
+    if not git_is_ancestor(root, commit, "HEAD"):
+        raise DocflowError("MVP baseline commit must be an ancestor of HEAD")
+
+    evidence_rel = MVP_EVIDENCE_REL.as_posix()
+    evidence_bytes = git_blob(root, commit, evidence_rel)
+    try:
+        evidence = json.loads(evidence_bytes.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise DocflowError(f"Invalid MVP evidence in baseline commit: {exc}") from exc
+    if not isinstance(evidence, dict):
+        raise DocflowError("MVP evidence in baseline commit must be a JSON object")
+    evidence_errors = validate_mvp_evidence(evidence)
+    if evidence_errors:
+        raise DocflowError("MVP evidence is invalid:\n- " + "\n- ".join(evidence_errors))
+
+    plan_rel = ADOPTION_PLAN_REL.as_posix()
+    plan_path = root / ADOPTION_PLAN_REL
+    plan = load_json(plan_path)
+    plan_errors = validate_adoption_plan(plan)
+    if plan_errors:
+        raise DocflowError("Adoption plan is invalid:\n- " + "\n- ".join(plan_errors))
+    if plan.get("approved_by") != args.approved_by:
+        raise DocflowError("--approved-by must match the approved adoption plan")
+    if not git_has_path(root, "HEAD", plan_rel):
+        raise DocflowError("Approved adoption plan must be committed before adoption")
+    if git_blob(root, "HEAD", plan_rel) != plan_path.read_bytes():
+        raise DocflowError("Working adoption plan differs from committed HEAD")
+
+    allowed_patterns = tuple(dict.fromkeys((*ADOPTION_ALLOWED_PATHS, *(args.allow_path or []))))
+    unexpected = [
+        path
+        for path in git_paths_between(root, commit)
+        if not _matches(path, allowed_patterns)
+    ]
+    if unexpected:
+        raise DocflowError(
+            "Product implementation changed after MVP validation; validate a newer baseline: "
+            + ", ".join(unexpected)
+        )
+
+    verification = _baseline_verification_index(evidence)
+    accepted_flows: list[dict[str, Any]] = []
+    for flow in evidence["accepted_flows"]:
+        evidence_ids = sorted(
+            evidence_id
+            for evidence_id, item in verification.items()
+            if item.get("result") == "passed" and flow["id"] in item.get("flow_ids", [])
+        )
+        if not evidence_ids:
+            raise DocflowError(f"Accepted flow lacks passed evidence: {flow['id']}")
+        accepted_flows.append(
+            {
+                "id": flow["id"],
+                "requirement_ids": flow["requirement_ids"],
+                "evidence_ids": evidence_ids,
+            }
+        )
+    baseline = {
+        "schema_version": "1.0",
+        "mode": "strict",
+        "source_mode": "fast-mvp",
+        "baseline_commit": commit,
+        "baseline_tree": git_tree(root, commit),
+        "adoption_plan": {
+            "path": plan_rel,
+            "sha256": sha256_file(plan_path),
+        },
+        "evidence": {
+            "path": evidence_rel,
+            "sha256": sha256_bytes(evidence_bytes),
+        },
+        "accepted_flows": accepted_flows,
+        "known_debt": plan.get("known_debt", []),
+        "enforcement": {"changes_after": commit},
+        "approved_by": args.approved_by,
+        "approved_at": utc_now(),
+    }
+    write_json(baseline_path, baseline)
+    errors = check_baseline(
+        root, policy=default_policy(source_mode="fast-mvp")
+    )
+    if errors:
+        baseline_path.unlink(missing_ok=True)
+        raise DocflowError("Created baseline failed validation:\n- " + "\n- ".join(errors))
+    print(f"Adopted validated MVP baseline {commit}")
+
+
+def cmd_check_mvp_evidence(args: argparse.Namespace) -> None:
+    root = find_root(args.root)
+    evidence = load_json(root / MVP_EVIDENCE_REL)
+    errors = validate_mvp_evidence(evidence)
+    if errors:
+        raise DocflowError("MVP evidence invalid:\n- " + "\n- ".join(errors))
+    print(
+        f"MVP evidence valid: {len(evidence['accepted_flows'])} accepted flow(s), "
+        f"stage {evidence['stage']}"
+    )
+
+
+def cmd_check_baseline(args: argparse.Namespace) -> None:
+    root = find_root(args.root)
+    policy = load_policy(root)
+    errors = check_baseline(root, policy=policy, base_ref=args.base_ref)
+    if errors:
+        raise DocflowError("Adoption baseline invalid:\n- " + "\n- ".join(errors))
+    if policy.get("source_mode") == "fast-mvp":
+        baseline = load_json(root / ADOPTION_BASELINE_REL)
+        print(f"Adoption baseline valid: {baseline['baseline_commit']}")
+    else:
+        print("Direct-Strict governance valid without an adoption baseline")
+
+
 def cmd_prepare(args: argparse.Namespace) -> None:
     root = find_root(args.root)
+    require_governance(root)
     safe_id(args.task_id, "task id")
     manifest = require_valid_manifest(root)
     amap = artifact_map(manifest)
@@ -1980,6 +2571,16 @@ def _verification_fingerprint(
     environment: dict[str, str],
 ) -> tuple[str, list[dict[str, str]]]:
     inputs = _available_inputs(root, spec["input_paths"])
+    governance = []
+    # Policy and adoption provenance are stable reuse boundaries. The task lock
+    # itself is intentionally excluded because its task id changes across runs;
+    # selected document hashes and the package contract are already bound below.
+    for relative in (POLICY_REL, ADOPTION_BASELINE_REL):
+        path = root / relative
+        if path.is_file():
+            governance.append(
+                {"path": relative.as_posix(), "sha256": sha256_file(path)}
+            )
     context = {
         "documents": [
             {"path": item.get("path"), "sha256": item.get("sha256")}
@@ -1990,6 +2591,7 @@ def _verification_fingerprint(
         "gate": spec,
         "inputs": inputs,
         "environment": environment,
+        "governance": governance,
     }
     return store.canonical_hash(context), inputs
 
@@ -3210,6 +3812,12 @@ def verify_changed_paths(
 
 def cmd_verify(args: argparse.Namespace) -> None:
     root = find_root(args.root)
+    try:
+        policy = require_governance(
+            root, base_ref=args.base_ref if args.ci else None
+        )
+    except DocflowError as exc:
+        raise DocflowError(f"Verification failed:\n- {exc}") from exc
     manifest = require_valid_manifest(root)
     active = [
         item["id"]
@@ -3231,7 +3839,6 @@ def cmd_verify(args: argparse.Namespace) -> None:
         errors.extend(run_errors)
         if run and run.get("status") != "completed":
             errors.append(f"Orchestrated run is not completed: {run.get('status')}")
-    policy = load_policy(root)
     errors.extend(verify_traceability(root, lock, policy))
     if args.ci:
         if not args.base_ref:
@@ -3240,8 +3847,9 @@ def cmd_verify(args: argparse.Namespace) -> None:
             )
         else:
             try:
+                ci_base = effective_ci_base(root, args.base_ref, policy)
                 errors.extend(
-                    verify_changed_paths(root, manifest, lock, policy, args.base_ref)
+                    verify_changed_paths(root, manifest, lock, policy, ci_base)
                 )
             except DocflowError as exc:
                 errors.append(str(exc))
@@ -3332,6 +3940,34 @@ def build_parser() -> argparse.ArgumentParser:
     approve_bundle.add_argument("--approval", action="append", required=True)
     approve_bundle.add_argument("--approved-by", required=True)
     approve_bundle.set_defaults(func=cmd_approve_bundle)
+
+    mvp_evidence = sub.add_parser(
+        "check-mvp-evidence", help="Validate Fast-MVP flow and verification evidence"
+    )
+    mvp_evidence.add_argument("--root", default=".")
+    mvp_evidence.set_defaults(func=cmd_check_mvp_evidence)
+
+    adopt_baseline = sub.add_parser(
+        "adopt-baseline",
+        help="Bind a validated Fast-MVP commit and approved adoption plan",
+    )
+    adopt_baseline.add_argument("--root", default=".")
+    adopt_baseline.add_argument("--baseline-commit", required=True)
+    adopt_baseline.add_argument("--approved-by", required=True)
+    adopt_baseline.add_argument(
+        "--allow-path",
+        action="append",
+        help="Additional adoption-only path pattern allowed after the MVP commit",
+    )
+    adopt_baseline.set_defaults(func=cmd_adopt_baseline)
+
+    baseline_check = sub.add_parser(
+        "check-baseline",
+        help="Validate Direct-Strict or Fast-MVP baseline governance",
+    )
+    baseline_check.add_argument("--root", default=".")
+    baseline_check.add_argument("--base-ref")
+    baseline_check.set_defaults(func=cmd_check_baseline)
 
     prepare = sub.add_parser(
         "prepare", help="Create a task lock from approved relevant artifacts"

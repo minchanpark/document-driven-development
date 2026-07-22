@@ -1,19 +1,21 @@
 {
   "name": "document-driven-development",
-  "version": "0.4.1+codex.20260722075024",
-  "description": "Turn a PRD into approved project documents, then gate single or orchestrated implementation on task and package locks.",
+  "version": "0.5.0+codex.20260722164301",
+  "description": "Build a validated Fast MVP or start Direct Strict, then enforce approved documents, immutable adoption baselines, and task or package locks.",
   "author": {
     "name": "Park Minchan"
   },
   "skills": "./skills/",
   "interface": {
     "displayName": "Document Driven Development",
-    "shortDescription": "Plan documents dynamically, then gate implementation on them.",
-    "longDescription": "Starts from a PRD, discovers and approves a project-specific document graph, then enforces document hashes, task locks, package ownership, independent review, traceability, hooks, and CI for single or orchestrated development.",
+    "shortDescription": "Validate a Fast MVP or start Strict, then enforce approved plans.",
+    "longDescription": "Builds an evidence-backed vertical Fast MVP and graduates it through an immutable Git baseline, or starts directly from an approved project-specific document graph. Both routes converge on document hashes, task locks, package ownership, independent review, traceability, hooks, and CI.",
     "developerName": "Park Minchan",
     "category": "Developer Tools",
     "capabilities": [
       "Dynamic document graph discovery",
+      "Fast MVP vertical-flow validation",
+      "Immutable Fast-to-Strict adoption baselines",
       "Conversational document approval",
       "Document-gated implementation",
       "Hash-bound compact context packs",
@@ -21,6 +23,6 @@
       "Independent cross-review and green integration",
       "Traceability and CI verification"
     ],
-    "defaultPrompt": "Start from my PRD, approve the minimum document graph with me, and use one Main Orchestrator with package locks and cross-review when the implementation is complex."
+    "defaultPrompt": "Help me choose Fast MVP or Direct Strict from my PRD, then preserve the full Strict gates after adoption."
   }
 }

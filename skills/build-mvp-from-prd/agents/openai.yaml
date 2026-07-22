@@ -1,0 +1,4 @@
+interface:
+  display_name: "Build MVP from PRD"
+  short_description: "Build and validate a vertical Fast MVP flow"
+  default_prompt: "Use $build-mvp-from-prd to build the smallest connected MVP from my PRD."

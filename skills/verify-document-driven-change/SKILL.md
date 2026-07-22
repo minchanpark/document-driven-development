@@ -13,6 +13,7 @@ Run:
 
 ```text
 python3 .document-driven/bin/docflow.py validate --root <repo>
+python3 .document-driven/bin/docflow.py check-baseline --root <repo>
 python3 .document-driven/bin/docflow.py check-lock --root <repo>
 python3 .document-driven/bin/docflow.py check-run --root <repo> --audit
 python3 .document-driven/bin/docflow.py verify --root <repo>
@@ -21,6 +22,10 @@ python3 .document-driven/bin/docflow.py verify --root <repo>
 These checks must confirm current approval hashes, manifest and document hashes,
 requirement ids, locked dependencies, policy-required artifacts, existing code and
 test paths, and complete traceability for the active task.
+
+For Fast-MVP adoptions, verify the immutable baseline commit/tree, baseline-blob
+evidence hash, approved adoption-plan hash, and effective CI base. Do not require
+traceability for implementation at or before the baseline commit.
 
 When `.document-driven/runs/<task-id>/run.json` exists, also require a valid,
 `completed` run, no active Package Lock, independent review evidence, and every

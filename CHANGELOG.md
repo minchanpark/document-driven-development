@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.5.0 - 2026-07-23
+
+- Added an explicit Fast-MVP lane that implements and validates one critical
+  vertical journey without imitating Strict document or Task Lock gates.
+- Added `graduate-mvp-to-ddd`, approved adoption plans, immutable Git baselines,
+  baseline-blob evidence hashing, and one-way Fast-to-Strict activation.
+- Added policy schema 1.1 with backward-compatible 1.0 normalization and explicit
+  `direct-strict` versus `fast-mvp` provenance.
+- Made prepare, lock, write guard, session context, validation leases, final
+  verification, and CI baseline-aware while preserving pre-baseline code from
+  retroactive traceability.
+- Added ancestry-based effective CI ranges, first-adoption bootstrap handling,
+  baseline tamper detection, and managed GitHub workflow upgrades.
+- Preserved package locks, append-only run history, evidence reuse, provider
+  routing, and worktree lifecycle behavior from 0.4.x.
+
 ## 0.4.1 - 2026-07-22
 
 - Adapted Ponytail's core minimum-correct implementation ladder into the

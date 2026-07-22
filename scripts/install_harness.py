@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 import shutil
@@ -25,6 +26,9 @@ MANAGED_HOOK_SCRIPTS = {
     "claude_session_context.py",
     "antigravity_pre_tool.py",
     "antigravity_pre_invocation.py",
+}
+KNOWN_MANAGED_WORKFLOW_HASHES = {
+    "22139f24801451c366c1336430fc94f693bb0c272b620f92571d17fd97ad4ff6",
 }
 
 
@@ -223,6 +227,24 @@ def write_if_absent(path: Path, content: bytes) -> str:
     return "created"
 
 
+def merge_github_workflow(path: Path, content: bytes) -> str:
+    if not path.exists():
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(content)
+        return "created"
+    current = path.read_bytes()
+    if current == content:
+        return "unchanged"
+    current_hash = hashlib.sha256(current).hexdigest()
+    if current_hash not in KNOWN_MANAGED_WORKFLOW_HASHES:
+        raise docflow.DocflowError(
+            "Existing document-driven GitHub workflow was customized; merge the "
+            "0.5.0 baseline-aware workflow manually before activation"
+        )
+    path.write_bytes(content)
+    return "updated"
+
+
 def merge_gitignore(path: Path) -> str:
     existed = path.exists()
     current = path.read_text(encoding="utf-8") if existed else ""
@@ -240,15 +262,28 @@ def merge_policy(path: Path) -> str:
     existed = path.exists()
     policy = load_optional_json(path)
     before = json.dumps(policy, ensure_ascii=False, sort_keys=True)
-    defaults = docflow.default_policy()
-    for key in (
-        "schema_version",
-        "manifest_path",
-        "path_rules",
-        "require_requirement_ids",
-        "require_traceability",
-    ):
+    baseline_exists = (path.parent / docflow.ADOPTION_BASELINE_REL.name).is_file()
+    if existed:
+        policy = docflow.normalize_policy(policy)
+        if baseline_exists and policy.get("source_mode") != "fast-mvp":
+            raise docflow.DocflowError(
+                "Cannot convert an existing Direct-Strict harness to Fast-MVP adoption"
+            )
+        if not baseline_exists and policy.get("source_mode") == "fast-mvp":
+            raise docflow.DocflowError("Fast-MVP policy is missing its adoption baseline")
+    else:
+        policy = docflow.default_policy(
+            source_mode="fast-mvp" if baseline_exists else "direct-strict"
+        )
+    defaults = docflow.default_policy(source_mode=policy["source_mode"])
+    policy["schema_version"] = "1.1"
+    policy["mode"] = "strict"
+    for key in ("manifest_path", "path_rules", "require_requirement_ids", "require_traceability"):
         policy.setdefault(key, defaults[key])
+    if policy["source_mode"] == "fast-mvp":
+        policy["adoption_baseline_path"] = docflow.ADOPTION_BASELINE_REL.as_posix()
+    else:
+        policy.pop("adoption_baseline_path", None)
     documentation_paths = policy.setdefault("documentation_paths", [])
     if not isinstance(documentation_paths, list) or not all(
         isinstance(item, str) for item in documentation_paths
@@ -333,6 +368,12 @@ def install(root: Path, ci: str) -> list[tuple[str, str]]:
     policy_path = root / docflow.POLICY_REL
     policy_status = merge_policy(policy_path)
     results.append((docflow.POLICY_REL.as_posix(), policy_status))
+    policy = docflow.load_policy(root)
+    baseline_errors = docflow.check_baseline(root, policy=policy)
+    if baseline_errors:
+        raise docflow.DocflowError(
+            "Harness governance is invalid:\n- " + "\n- ".join(baseline_errors)
+        )
     orchestration_path = root / docflow.ORCHESTRATION_REL
     orchestration_status = merge_orchestration(orchestration_path)
     docflow.load_orchestration(root)
@@ -375,7 +416,10 @@ def install(root: Path, ci: str) -> list[tuple[str, str]]:
         workflow = root / ".github/workflows/document-driven-development.yml"
         content = (plugin_root / "assets/harness/github-workflow.yml").read_bytes()
         results.append(
-            (workflow.relative_to(root).as_posix(), write_if_absent(workflow, content))
+            (
+                workflow.relative_to(root).as_posix(),
+                merge_github_workflow(workflow, content),
+            )
         )
     return results
 

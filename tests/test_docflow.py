@@ -297,6 +297,9 @@ class DocflowScenarioTest(unittest.TestCase):
         self.assertEqual(install.returncode, 0, install.stderr)
         installed_policy_path = self.root / ".document-driven/policy.json"
         installed_policy = json.loads(installed_policy_path.read_text(encoding="utf-8"))
+        self.assertEqual(installed_policy["schema_version"], "1.1")
+        self.assertEqual(installed_policy["mode"], "strict")
+        self.assertEqual(installed_policy["source_mode"], "direct-strict")
         installed_policy["documentation_paths"].remove(".agents/**")
         installed_policy["documentation_paths"].append("custom-docs/**")
         write_json(installed_policy_path, installed_policy)
@@ -1321,6 +1324,236 @@ class DocflowScenarioTest(unittest.TestCase):
                     check=False,
                     capture_output=True,
                 )
+
+    def test_fast_mvp_adoption_bootstrap_and_baseline_tamper_detection(self) -> None:
+        (self.root / "src").mkdir()
+        (self.root / "src/app.py").write_text("VALUE = 1\n", encoding="utf-8")
+        write_json(
+            self.root / ".document-driven/mvp-evidence.json",
+            {
+                "schema_version": "1.0",
+                "mode": "fast-mvp",
+                "stage": "connected",
+                "accepted_flows": [
+                    {
+                        "id": "health-flow",
+                        "requirement_ids": ["REQ-1"],
+                        "status": "passed",
+                    }
+                ],
+                "verification": [
+                    {
+                        "id": "E2E-1",
+                        "flow_ids": ["health-flow"],
+                        "type": "browser-e2e",
+                        "command": "python -m unittest",
+                        "result": "passed",
+                        "exit_code": 0,
+                        "executed_at": "2026-07-23T00:00:00+00:00",
+                        "evidence_paths": [],
+                    }
+                ],
+                "validated_by": "test-user",
+                "validated_at": "2026-07-23T00:01:00+00:00",
+            },
+        )
+        self.assertEqual(self.run_docflow("check-mvp-evidence").returncode, 0)
+        subprocess.run(["git", "init", "-q"], cwd=self.root, check=True)
+        subprocess.run(
+            ["git", "config", "user.email", "test@example.com"],
+            cwd=self.root,
+            check=True,
+        )
+        subprocess.run(
+            ["git", "config", "user.name", "Test User"],
+            cwd=self.root,
+            check=True,
+        )
+        subprocess.run(["git", "add", "."], cwd=self.root, check=True)
+        subprocess.run(
+            ["git", "commit", "-qm", "validated MVP"], cwd=self.root, check=True
+        )
+        baseline = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=self.root,
+            check=True,
+            text=True,
+            capture_output=True,
+        ).stdout.strip()
+
+        self.approved_manifest()
+        write_json(
+            self.root / ".document-driven/adoption-plan.json",
+            {
+                "schema_version": "1.0",
+                "status": "approved",
+                "blocking_gaps": [],
+                "known_debt": [
+                    {
+                        "id": "DEBT-1",
+                        "summary": "Hosted smoke test remains",
+                        "disposition": "accepted",
+                        "follow_up_requirement_id": "REQ-OPS-1",
+                    }
+                ],
+                "approved_by": "test-user",
+                "approved_at": "2026-07-23T00:02:00+00:00",
+            },
+        )
+        subprocess.run(["git", "add", "."], cwd=self.root, check=True)
+        subprocess.run(
+            ["git", "commit", "-qm", "approve adoption documents"],
+            cwd=self.root,
+            check=True,
+        )
+        adopted = self.run_docflow(
+            "adopt-baseline",
+            "--baseline-commit",
+            baseline,
+            "--approved-by",
+            "test-user",
+        )
+        self.assertEqual(adopted.returncode, 0, adopted.stderr)
+        installed = self.run_python(
+            INSTALLER, "--root", str(self.root), "--ci", "github"
+        )
+        self.assertEqual(installed.returncode, 0, installed.stderr)
+        policy = json.loads(
+            (self.root / ".document-driven/policy.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(policy["source_mode"], "fast-mvp")
+        self.assertEqual(
+            policy["adoption_baseline_path"],
+            ".document-driven/adoption-baseline.json",
+        )
+        self.assertEqual(self.run_docflow("check-baseline").returncode, 0)
+        blocked = self.run_docflow(
+            "guard-edit", "--path", ".document-driven/adoption-baseline.json"
+        )
+        self.assertNotEqual(blocked.returncode, 0)
+
+        subprocess.run(["git", "add", "."], cwd=self.root, check=True)
+        subprocess.run(
+            ["git", "commit", "-qm", "activate strict DDD"],
+            cwd=self.root,
+            check=True,
+        )
+        bootstrap = self.run_docflow("check-baseline", "--base-ref", baseline)
+        self.assertEqual(bootstrap.returncode, 0, bootstrap.stderr)
+        self.assertEqual(
+            docflow_module.effective_ci_base(self.root, baseline, policy), baseline
+        )
+
+        prepared = self.run_docflow(
+            "prepare",
+            "--task-id",
+            "TASK-POST-ADOPTION",
+            "--summary",
+            "Add a post-adoption health variant",
+            "--requirement",
+            "REQ-1",
+            "--scope",
+            "backend",
+        )
+        self.assertEqual(prepared.returncode, 0, prepared.stderr)
+        (self.root / "src/strict.py").write_text("VALUE = 2\n", encoding="utf-8")
+        (self.root / "tests").mkdir()
+        (self.root / "tests/test_strict.py").write_text(
+            "from src.strict import VALUE\n", encoding="utf-8"
+        )
+        traced = self.run_docflow(
+            "trace",
+            "--requirement",
+            "REQ-1",
+            "--code",
+            "src/strict.py",
+            "--test",
+            "tests/test_strict.py",
+        )
+        self.assertEqual(traced.returncode, 0, traced.stderr)
+        subprocess.run(["git", "add", "."], cwd=self.root, check=True)
+        subprocess.run(
+            ["git", "commit", "-qm", "document post-adoption change"],
+            cwd=self.root,
+            check=True,
+        )
+        verified = self.run_docflow("verify", "--ci", "--base-ref", baseline)
+        self.assertEqual(verified.returncode, 0, verified.stderr)
+
+        baseline_path = self.root / ".document-driven/adoption-baseline.json"
+        original_baseline = baseline_path.read_bytes()
+        baseline_value = json.loads(baseline_path.read_text(encoding="utf-8"))
+        baseline_value["approved_at"] = "2026-07-23T01:00:00+00:00"
+        write_json(baseline_path, baseline_value)
+        tampered = self.run_docflow("check-baseline")
+        self.assertNotEqual(tampered.returncode, 0)
+        self.assertIn("committed HEAD", tampered.stderr)
+
+        baseline_path.write_bytes(original_baseline)
+        baseline_path.unlink()
+        (self.root / ".document-driven/policy.json").unlink()
+        downgraded = self.run_docflow("check-baseline")
+        self.assertNotEqual(downgraded.returncode, 0)
+        self.assertIn("downgraded", downgraded.stderr)
+
+    def test_policy_1_0_migrates_to_direct_strict_without_losing_rules(self) -> None:
+        self.approved_manifest()
+        write_json(
+            self.root / ".document-driven/policy.json",
+            {
+                "schema_version": "1.0",
+                "manifest_path": "docs/document-manifest.json",
+                "documentation_paths": ["docs/**", "custom-docs/**"],
+                "path_rules": [
+                    {
+                        "patterns": ["src/**"],
+                        "requires_artifacts": ["architecture"],
+                    }
+                ],
+                "require_requirement_ids": True,
+                "require_traceability": True,
+            },
+        )
+        migrated = self.run_python(
+            INSTALLER, "--root", str(self.root), "--ci", "none"
+        )
+        self.assertEqual(migrated.returncode, 0, migrated.stderr)
+        policy = json.loads(
+            (self.root / ".document-driven/policy.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(policy["schema_version"], "1.1")
+        self.assertEqual(policy["source_mode"], "direct-strict")
+        self.assertIn("custom-docs/**", policy["documentation_paths"])
+        self.assertEqual(
+            policy["path_rules"][0]["requires_artifacts"], ["architecture"]
+        )
+
+    def test_installer_upgrades_known_workflow_and_rejects_custom_workflow(self) -> None:
+        self.approved_manifest()
+        workflow = self.root / ".github/workflows/document-driven-development.yml"
+        workflow.parent.mkdir(parents=True)
+        workflow.write_text(
+            "name: Document-driven development\n\n"
+            "on:\n  pull_request:\n  push:\n    branches:\n      - main\n\n"
+            "jobs:\n  document-gate:\n    runs-on: ubuntu-latest\n    steps:\n"
+            "      - uses: actions/checkout@v4\n        with:\n          fetch-depth: 0\n"
+            "      - name: Validate approved document context and traceability\n"
+            "        env:\n          DDD_BASE_REF: ${{ github.event.pull_request.base.sha || github.event.before }}\n"
+            "        run: python3 .document-driven/bin/docflow.py verify --root . --ci --base-ref \"$DDD_BASE_REF\"\n",
+            encoding="utf-8",
+        )
+        upgraded = self.run_python(
+            INSTALLER, "--root", str(self.root), "--ci", "github"
+        )
+        self.assertEqual(upgraded.returncode, 0, upgraded.stderr)
+        self.assertIn("managed workflow v0.5.0", workflow.read_text(encoding="utf-8"))
+
+        workflow.write_text("name: Team-owned custom gate\n", encoding="utf-8")
+        rejected = self.run_python(
+            INSTALLER, "--root", str(self.root), "--ci", "github"
+        )
+        self.assertNotEqual(rejected.returncode, 0)
+        self.assertIn("customized", rejected.stderr)
 
 
 if __name__ == "__main__":

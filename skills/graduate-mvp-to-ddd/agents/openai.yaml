@@ -1,0 +1,4 @@
+interface:
+  display_name: "Graduate MVP to DDD"
+  short_description: "Adopt a validated MVP into Strict DDD"
+  default_prompt: "Use $graduate-mvp-to-ddd to graduate my validated MVP into Strict DDD."

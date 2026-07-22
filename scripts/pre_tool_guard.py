@@ -214,7 +214,9 @@ def evaluate(payload: dict[str, Any]) -> tuple[bool, str]:
     """Evaluate a normalized write attempt. Return ``(allowed, reason)``."""
     tool_name, tool_input, cwd = normalized_call(payload)
     root = docflow.find_root(cwd)
-    if not (root / docflow.MANIFEST_REL).is_file():
+    if not (root / docflow.MANIFEST_REL).is_file() and not (
+        root / docflow.ADOPTION_BASELINE_REL
+    ).exists():
         return True, "Document-driven development is not initialized for this repository."
 
     try:

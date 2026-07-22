@@ -5,6 +5,12 @@
 sources. The artifact list is project-specific; do not invent a fixed document
 checklist.
 
+Run `docflow.py check-baseline` before implementation. A Fast-MVP adoption
+baseline is immutable: do not edit, delete, move, or replace it. Strict DDD may
+not be downgraded to Fast MVP. Implementation at or before an accepted baseline
+is exempt from retroactive traceability; every implementation change after it
+remains subject to the normal Strict gates.
+
 Before changing implementation code, tests, migrations, infrastructure, or
 generated contracts:
 
